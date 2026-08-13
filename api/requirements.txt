@@ -1,0 +1,20 @@
+# FastAPI 框架
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+
+# 数据验证和序列化
+pydantic>=2.6
+pydantic-settings>=2.2
+
+# 数据库
+sqlalchemy>=2.0.25
+
+# 读写 VikPea 工作台的 Excel 数据
+openpyxl>=3.1
+
+# HTTP 客户端
+httpx>=0.27
+
+# 环境变量
+python-dotenv>=1.0

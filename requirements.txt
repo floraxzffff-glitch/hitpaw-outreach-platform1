@@ -1,0 +1,31 @@
+# VikPea 工作台 - Python 依赖清单
+# 推荐: Python 3.10+
+
+# Excel 处理
+openpyxl>=3.10.0
+
+# HTTP 请求
+requests>=2.31.0
+certifi>=2023.7.22
+
+# HTML 解析
+beautifulsoup4>=4.12.0
+
+# YouTube 元数据抓取
+yt-dlp>=2024.1.1
+
+# 邮件处理
+secure-smtplib>=0.1.1
+
+# 数据处理
+python-dateutil>=2.8.2
+
+# 可选：SEO/搜索工具集成
+# serper>=0.0.1  # Serper 搜索 API
+# dataforseo>=0.0.1  # DataForSEO API
+
+# 开发依赖
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+# black>=23.9.0
+# flake8>=6.0.0

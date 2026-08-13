@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project files
+config/config.xlsx
+config/blacklist.xlsx
+data/*.xlsx
+logs/
+*.log
+*.bak
+.broken_*
+
+# VikPea data files (local backups, not version controlled)
+VikPea_*.xlsx
+.processed_message_ids.json
+.deep_email_checked_links.json
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+frontend/.next/
+frontend/out/
+npm-debug.log*
+
+# Temporary
+*.tmp
+*.temp
+/tmp/
