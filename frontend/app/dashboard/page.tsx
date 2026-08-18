@@ -5,7 +5,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Navbar from '../components/Navbar';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import SuccessAlert from '../components/SuccessAlert';
@@ -44,6 +43,12 @@ export default function DashboardPage() {
 
   const features = [
     {
+      icon: '🎥',
+      title: 'YouTube KOL 搜索',
+      description: '真实跑 yt-dlp 抓取 YouTube 博主并找邮箱',
+      href: '/youtube',
+    },
+    {
       icon: '🔍',
       title: '关键词分析',
       description: '分析关键词的搜索潜力和邮箱发现率',
@@ -70,9 +75,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <>
-      <Navbar />
-      <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -217,6 +220,5 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
-    </>
   );
 }

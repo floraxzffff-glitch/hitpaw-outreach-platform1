@@ -5,7 +5,6 @@
 'use client';
 
 import { useState } from 'react';
-import Navbar from '../components/Navbar';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import SuccessAlert from '../components/SuccessAlert';
@@ -54,9 +53,7 @@ export default function SEOPage() {
   };
 
   return (
-    <>
-      <Navbar />
-      <main className="min-h-screen bg-gray-50 py-12">
+    <main className="min-h-screen bg-gray-50 py-12">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="mb-8">
@@ -215,6 +212,5 @@ export default function SEOPage() {
           )}
         </div>
       </main>
-    </>
   );
 }

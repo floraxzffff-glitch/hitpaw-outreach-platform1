@@ -9,6 +9,7 @@
 
 import os
 import sys
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -32,6 +33,9 @@ from VikPea_关键词聚类 import (  # noqa: E402
     ARTICLE_KEYWORD_PATH,
 )
 import VikPea_关键词复盘 as keyword_review  # noqa: E402
+import VikPea_读表发信 as outreach_sender  # noqa: E402
+
+import job_runner  # noqa: E402
 
 SEO_SCAN_OUTPUT = os.path.join(WORKSPACE_DIR, "VikPea_SEO渠道机会扫描.xlsx")
 
@@ -50,9 +54,10 @@ def _workbook_rows(path: str, sheet: Optional[str] = None) -> List[Dict[str, Any
         return []
     headers = [str(cell.value or "").strip() for cell in ws[1]]
     rows = []
-    for values in ws.iter_rows(min_row=2, values_only=True):
+    for i, values in enumerate(ws.iter_rows(min_row=2, values_only=True)):
         row = dict(zip(headers, values))
         if any(v not in (None, "") for v in row.values()):
+            row["_rownum"] = 2 + i  # 对应 Excel 里的实际行号，编辑/删除时要用
             rows.append(row)
     return rows
 
@@ -258,6 +263,462 @@ def get_seo_analysis_report() -> Dict[str, Any]:
         "has_scan_data": has_seo_scan_data(),
         "top_opportunities": sorted(rows, key=lambda r: -r["relevance_score"])[:20],
     }
+
+
+# ======================== YouTube KOL 搜索（重活，走后台任务） ========================
+
+YOUTUBE_KEYWORD_PATH = vikpea_common.YOUTUBE_KEYWORD_PATH
+
+
+def _is_enabled_flag(value: Any) -> bool:
+    text = str(value or "是").strip().lower()
+    return text not in {"停用", "禁用", "否", "no", "n", "0", "false"}
+
+
+def list_youtube_keywords() -> List[Dict[str, Any]]:
+    if not os.path.exists(YOUTUBE_KEYWORD_PATH):
+        return []
+    wb = openpyxl.load_workbook(YOUTUBE_KEYWORD_PATH, data_only=True)
+    ws = wb.active
+    rows = []
+    for row in ws.iter_rows(min_row=1, values_only=True):
+        keyword = str((row[0] if row else "") or "").strip()
+        if not keyword or keyword.lower() in {"keyword", "keywords", "关键词"}:
+            continue
+        note = str((row[2] if len(row) > 2 else "") or "").strip()
+        rows.append({
+            "keyword": keyword,
+            "enabled": _is_enabled_flag(row[1] if len(row) > 1 else "是"),
+            "note": note,
+        })
+    return rows
+
+
+def set_youtube_keyword(keyword: str, enabled: bool, note: Optional[str] = None) -> bool:
+    """开/关一个已有关键词；如果关键词不存在就新增一行（默认启用）。"""
+    keyword = keyword.strip()
+    if not keyword:
+        raise ValueError("关键词不能为空")
+    if not os.path.exists(YOUTUBE_KEYWORD_PATH):
+        raise FileNotFoundError(YOUTUBE_KEYWORD_PATH)
+
+    wb = openpyxl.load_workbook(YOUTUBE_KEYWORD_PATH)
+    ws = wb.active
+    found = False
+    for row in ws.iter_rows(min_row=2):
+        cell_kw = str(row[0].value or "").strip()
+        if cell_kw == keyword:
+            row[1].value = "是" if enabled else "否"
+            if note is not None:
+                if len(row) > 2:
+                    row[2].value = note
+            found = True
+            break
+    if not found:
+        ws.append([keyword, "是" if enabled else "否", note or ""])
+    return vikpea_common.save_workbook_safe(wb, YOUTUBE_KEYWORD_PATH, "YouTube搜索关键词")
+
+
+def add_youtube_keywords_batch(keywords: List[str]) -> Dict[str, Any]:
+    """一次加一批关键词（比如从 Excel 整列粘贴过来），全部默认启用。"""
+    if not os.path.exists(YOUTUBE_KEYWORD_PATH):
+        raise FileNotFoundError(YOUTUBE_KEYWORD_PATH)
+
+    cleaned = []
+    seen = set()
+    for kw in keywords:
+        kw = str(kw or "").strip()
+        if kw and kw not in seen:
+            seen.add(kw)
+            cleaned.append(kw)
+    if not cleaned:
+        raise ValueError("没有有效的关键词")
+
+    wb = openpyxl.load_workbook(YOUTUBE_KEYWORD_PATH)
+    ws = wb.active
+    existing = {}
+    for row in ws.iter_rows(min_row=2):
+        cell_kw = str(row[0].value or "").strip()
+        if cell_kw:
+            existing[cell_kw] = row
+
+    added, updated = 0, 0
+    for kw in cleaned:
+        if kw in existing:
+            existing[kw][1].value = "是"
+            updated += 1
+        else:
+            ws.append([kw, "是", ""])
+            added += 1
+
+    vikpea_common.save_workbook_safe(wb, YOUTUBE_KEYWORD_PATH, "YouTube搜索关键词")
+    return {"added": added, "updated": updated, "keywords": list_youtube_keywords()}
+
+
+def delete_youtube_keyword(keyword: str) -> Dict[str, Any]:
+    keyword = keyword.strip()
+    if not os.path.exists(YOUTUBE_KEYWORD_PATH):
+        raise FileNotFoundError(YOUTUBE_KEYWORD_PATH)
+    wb = openpyxl.load_workbook(YOUTUBE_KEYWORD_PATH)
+    ws = wb.active
+    target_row = None
+    for row in ws.iter_rows(min_row=2):
+        if str(row[0].value or "").strip() == keyword:
+            target_row = row[0].row
+            break
+    if target_row is None:
+        raise ValueError("找不到这个关键词")
+    ws.delete_rows(target_row)
+    vikpea_common.save_workbook_safe(wb, YOUTUBE_KEYWORD_PATH, "YouTube搜索关键词")
+    return {"keywords": list_youtube_keywords()}
+
+
+# 网页上暴露出来可调的搜索参数：(配置表里的 key, 类型转换函数)
+YOUTUBE_SETTINGS_FIELDS = {
+    "YOUTUBE_RESULTS_PER_KEYWORD": int,
+    "YOUTUBE_MIN_VIDEO_VIEWS": int,
+    "YOUTUBE_MIN_SHORTS_VIEWS": int,
+    "YOUTUBE_MIN_RECENT_AVG_VIEWS": int,
+    "YOUTUBE_RECENT_VIDEO_COUNT": int,
+    "YOUTUBE_ACTIVE_WITHIN_DAYS": int,
+    "YOUTUBE_SUB_MIN": int,
+    "YOUTUBE_SUB_MAX": int,
+    "YOUTUBE_MARKET_SCORE_MIN": int,
+}
+
+
+def get_youtube_search_settings() -> Dict[str, Any]:
+    """当前生效的搜索参数（配置表里有就用配置表的，没有就用脚本默认值——跟桌面版跑起来看到的是同一份）"""
+    config = vikpea_common.load_config()
+    return {key: config.get(key) for key in YOUTUBE_SETTINGS_FIELDS}
+
+
+def _upsert_config_rows(updates: Dict[str, Any]) -> None:
+    """把 {配置项: 值} 写进 VikPea_配置.xlsx（已有就改，没有就新增一行）"""
+    if os.path.exists(vikpea_common.CONFIG_PATH):
+        wb = openpyxl.load_workbook(vikpea_common.CONFIG_PATH)
+    else:
+        wb = openpyxl.Workbook()
+        wb.active.append(["配置项", "值", "说明"])
+    ws = wb["配置"] if "配置" in wb.sheetnames else wb.active
+
+    existing_keys = {}
+    for row in ws.iter_rows(min_row=2):
+        key = str(row[0].value or "").strip()
+        if key:
+            existing_keys[key] = row
+
+    for key, value in updates.items():
+        if key in existing_keys:
+            existing_keys[key][1].value = value
+        else:
+            ws.append([key, value, ""])
+
+    vikpea_common.save_workbook_safe(wb, vikpea_common.CONFIG_PATH, "配置")
+
+
+def set_youtube_search_settings(updates: Dict[str, Any]) -> Dict[str, Any]:
+    """把改动写回 VikPea_配置.xlsx（新增/更新对应行），桌面版和网页版会一起生效。"""
+    unknown = set(updates) - set(YOUTUBE_SETTINGS_FIELDS)
+    if unknown:
+        raise ValueError(f"未知的设置项: {', '.join(sorted(unknown))}")
+    casted = {key: YOUTUBE_SETTINGS_FIELDS[key](value) for key, value in updates.items()}
+    _upsert_config_rows(casted)
+    return get_youtube_search_settings()
+
+
+# ======================== 邮件模板 / 产品信息 ========================
+# 只管"写什么内容"，不碰 SMTP 密码/发信这块（那是高风险的真发信功能，要单独确认）
+
+EMAIL_TEMPLATE_FIELDS = {
+    "PRODUCT_NAME": str,
+    "PRODUCT_TEAM": str,
+    "PRODUCT_URL": str,
+    "FROM_NAME": str,
+    "OUTREACH_SUBJECT_YOUTUBE": str,
+    "OUTREACH_TEMPLATE_YOUTUBE": str,
+    "OUTREACH_SUBJECT_ARTICLE": str,
+    "OUTREACH_TEMPLATE_ARTICLE": str,
+}
+
+
+def get_email_template_settings() -> Dict[str, Any]:
+    config = vikpea_common.load_config()
+    return {key: config.get(key, "") for key in EMAIL_TEMPLATE_FIELDS}
+
+
+def set_email_template_settings(updates: Dict[str, Any]) -> Dict[str, Any]:
+    unknown = set(updates) - set(EMAIL_TEMPLATE_FIELDS)
+    if unknown:
+        raise ValueError(f"未知的设置项: {', '.join(sorted(unknown))}")
+    casted = {key: str(value) for key, value in updates.items()}
+    _upsert_config_rows(casted)
+    return get_email_template_settings()
+
+
+# ======================== 系统设置（SMTP/IMAP/搜索引擎API/发信节奏） ========================
+# 这里只是"存密码/存参数"，不会触发任何真实发信或调用外部 API——
+# 真正会用到这些密钥的功能（发信、自动跟进、SerpAPI搜索）还没接进网页。
+
+SYSTEM_SETTINGS_FIELDS = {
+    "SMTP_SERVER": str,
+    "SMTP_PORT": int,
+    "SMTP_TIMEOUT": int,
+    "SMTP_ALLOW_INSECURE_SSL": bool,
+    "FROM_EMAIL": str,
+    "IMAP_SERVER": str,
+    "IMAP_PORT": int,
+    "DAILY_SEND_LIMIT": int,
+    "FOLLOWUP_DAILY_LIMIT": int,
+    "FOLLOWUP1_AFTER_DAYS": int,
+    "FOLLOWUP2_AFTER_DAYS": int,
+    "DELAY_SEC": int,
+    "SERP_PROVIDER": str,
+    "DATAFORSEO_LOGIN": str,
+    "ANTHROPIC_API_BASE": str,
+    "ANTHROPIC_TAG_MODEL": str,
+}
+
+# 密钥类字段：读的时候只返回"有没有设置"，绝不把明文传回前端；
+# 写的时候留空 = 不修改，填了新值才覆盖。
+SYSTEM_SECRET_FIELDS = ["PASSWORD", "SERPER_API_KEY", "SERPAPI_KEY", "DATAFORSEO_PASSWORD", "YOUTUBE_API_KEY", "ANTHROPIC_API_KEY"]
+
+
+def get_system_settings() -> Dict[str, Any]:
+    config = vikpea_common.load_config()
+    result = {key: config.get(key) for key in SYSTEM_SETTINGS_FIELDS}
+    for key in SYSTEM_SECRET_FIELDS:
+        result[f"{key}_SET"] = bool(str(config.get(key) or "").strip())
+    return result
+
+
+def set_system_settings(updates: Dict[str, Any]) -> Dict[str, Any]:
+    known = set(SYSTEM_SETTINGS_FIELDS) | set(SYSTEM_SECRET_FIELDS)
+    unknown = set(updates) - known
+    if unknown:
+        raise ValueError(f"未知的设置项: {', '.join(sorted(unknown))}")
+
+    casted: Dict[str, Any] = {}
+    for key, value in updates.items():
+        if key in SYSTEM_SECRET_FIELDS:
+            text = str(value or "").strip()
+            if text:  # 空值 = 不修改，避免误清空已保存的密钥
+                casted[key] = text
+        else:
+            caster = SYSTEM_SETTINGS_FIELDS[key]
+            casted[key] = caster(value)
+
+    if casted:
+        _upsert_config_rows(casted)
+    return get_system_settings()
+
+
+# ======================== 发送开发信（高风险，两段式：先预览，再明确确认才真发） ========================
+# 复用 VikPea_读表发信.py 里跟桌面版完全一样的 build_send_targets/send_targets，
+# 不是重写一遍逻辑——安全拦截、去重、主题/开头生成都是同一套代码。
+
+SEND_SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+
+def _serialize_target(t) -> Dict[str, Any]:
+    rownum, name, email, subj, opening, link, etype, source_kw, titles, home_link, video_link = t
+    return {
+        "rownum": rownum,
+        "name": name,
+        "email": email,
+        "subject": subj,
+        "opening": opening,
+        "link": link,
+        "type": etype,
+        "source": source_kw,
+        "home_link": home_link,
+        "video_link": video_link,
+    }
+
+
+def build_send_preview(should_personalize: bool = False) -> Dict[str, Any]:
+    if not str(vikpea_common.load_config().get("PASSWORD") or "").strip():
+        raise ValueError("还没配置发信密码，先去「系统设置」填邮箱授权码")
+
+    outreach_sender.apply_send_config()
+    session = outreach_sender.build_send_targets(should_personalize=should_personalize)
+    if session.get("retry"):
+        return {"preview_id": None, "message": session["message"], "targets": [], "blocked": []}
+
+    preview_id = f"send_{uuid.uuid4().hex[:8]}"
+    SEND_SESSIONS.clear()  # 同一时间只保留最新一次预览，避免拿着过期 session 发信
+    SEND_SESSIONS[preview_id] = session
+    return {
+        "preview_id": preview_id,
+        "message": None,
+        "targets": [_serialize_target(t) for t in session["targets"]],
+        "blocked": session["blocked_targets"],
+    }
+
+
+def start_send_job(preview_id: str, selected_rownums: List[int]) -> str:
+    session = SEND_SESSIONS.get(preview_id)
+    if not session:
+        raise ValueError("这次预览已经过期（可能被新的预览覆盖了），重新点一次「预览」")
+    if not selected_rownums:
+        raise ValueError("一个收件人都没选，没什么可发的")
+
+    def run():
+        sent_rows, failed = outreach_sender.send_targets(session, selected_rownums=set(selected_rownums))
+        print(f"\n完成：成功 {len(sent_rows)} 封，失败 {len(failed)} 封")
+
+    job_id = job_runner.start_job("email_send", run, label=f"发送 {len(selected_rownums)} 封")
+    SEND_SESSIONS.pop(preview_id, None)  # session 交给后台任务用完就丢，防止被重复提交
+    return job_id
+
+
+# ======================== 候选库（搜索结果） ========================
+
+def get_confirmed_candidates() -> List[Dict[str, Any]]:
+    """VikPea_发信名单.xlsx —— 高置信度、可以直接发信的候选人"""
+    rows = _workbook_rows(vikpea_common.QUEUE_PATH)
+    return [r for r in rows if str(r.get("频道名") or "").strip()]
+
+
+def get_pending_candidates() -> List[Dict[str, Any]]:
+    """VikPea_待确认邮箱.xlsx —— 置信度不够高，需要人工看一眼的候选人"""
+    rows = _workbook_rows(vikpea_common.PENDING_EMAIL_REVIEW_PATH)
+    return [r for r in rows if str(r.get("频道名") or "").strip()]
+
+
+def get_no_email_candidates() -> List[Dict[str, Any]]:
+    """VikPea_无邮箱候选.xlsx —— 暂时没找到邮箱的候选人"""
+    rows = _workbook_rows(vikpea_common.NO_EMAIL_POOL_PATH)
+    return [r for r in rows if str(r.get("频道名") or "").strip()]
+
+
+CONFIRMED_CANDIDATE_FIELDS = ["频道名", "邮箱", "主页链接", "视频链接", "备注", "类型", "来源关键词", "频道标签"]
+
+
+def add_confirmed_candidate(data: Dict[str, Any]) -> Dict[str, Any]:
+    """人工往 VikPea_发信名单.xlsx 里加一条——比如你自己搜到的、置信度已经很高的博主。"""
+    name = str(data.get("频道名") or "").strip()
+    email = str(data.get("邮箱") or "").strip()
+    if not name or not email:
+        raise ValueError("频道名和邮箱必填")
+
+    if os.path.exists(vikpea_common.QUEUE_PATH):
+        wb = openpyxl.load_workbook(vikpea_common.QUEUE_PATH)
+    else:
+        wb = openpyxl.Workbook()
+        wb.active.append(["频道名", "邮箱", "定制主题", "定制开头", "主页链接", "视频链接", "备注", "类型", "来源关键词", "频道标签"])
+    ws = wb.active
+    headers = [str(c.value or "").strip() for c in ws[1]]
+
+    row_values = {h: "" for h in headers}
+    row_values["频道名"] = name
+    row_values["邮箱"] = email
+    row_values["主页链接"] = str(data.get("主页链接") or "").strip()
+    row_values["视频链接"] = str(data.get("视频链接") or "").strip()
+    row_values["备注"] = str(data.get("备注") or "人工添加")
+    row_values["类型"] = str(data.get("类型") or "YouTube")
+    row_values["来源关键词"] = str(data.get("来源关键词") or "人工添加")
+    ws.append([row_values.get(h, "") for h in headers])
+
+    vikpea_common.save_workbook_safe(wb, vikpea_common.QUEUE_PATH, "发信名单")
+    return {"candidates": get_confirmed_candidates()}
+
+
+def update_confirmed_candidate(rownum: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    """编辑 VikPea_发信名单.xlsx 里已有的一行（比如补全/改主页链接、视频链接）。"""
+    if not os.path.exists(vikpea_common.QUEUE_PATH):
+        raise FileNotFoundError(vikpea_common.QUEUE_PATH)
+    wb = openpyxl.load_workbook(vikpea_common.QUEUE_PATH)
+    ws = wb.active
+    if rownum < 2 or rownum > ws.max_row:
+        raise ValueError("找不到这一行")
+    headers = [str(c.value or "").strip() for c in ws[1]]
+    col_index = {h: i + 1 for i, h in enumerate(headers)}
+
+    for field in CONFIRMED_CANDIDATE_FIELDS:
+        if field in data and field in col_index:
+            ws.cell(rownum, col_index[field]).value = data[field]
+
+    vikpea_common.save_workbook_safe(wb, vikpea_common.QUEUE_PATH, "发信名单")
+    return {"candidates": get_confirmed_candidates()}
+
+
+def delete_confirmed_candidate(rownum: int) -> Dict[str, Any]:
+    if not os.path.exists(vikpea_common.QUEUE_PATH):
+        raise FileNotFoundError(vikpea_common.QUEUE_PATH)
+    wb = openpyxl.load_workbook(vikpea_common.QUEUE_PATH)
+    ws = wb.active
+    if rownum < 2 or rownum > ws.max_row:
+        raise ValueError("找不到这一行")
+    ws.delete_rows(rownum)
+    vikpea_common.save_workbook_safe(wb, vikpea_common.QUEUE_PATH, "发信名单")
+    return {"candidates": get_confirmed_candidates()}
+
+
+# ======================== 发送追踪（已发邮件 + 回复进度） ========================
+
+TRACKER_EDITABLE_FIELDS = [
+    "是否回复", "回复摘要", "当前状态", "ABC分级",
+    "跟进1日期", "跟进1状态", "跟进2日期", "跟进2状态", "最近回复日期", "频道标签",
+]
+
+
+def get_tracker_rows() -> List[Dict[str, Any]]:
+    """VikPea_邮件开发追踪.xlsx —— 已经联络过的人，以及回复/跟进进度"""
+    rows = _workbook_rows(vikpea_common.TRACKER_PATH, "邮件追踪")
+    return [r for r in rows if str(r.get("邮箱") or "").strip()]
+
+
+def update_tracker_row(rownum: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    """更新一条追踪记录的回复/跟进状态（是否回复、当前状态、ABC分级等）。"""
+    if not os.path.exists(vikpea_common.TRACKER_PATH):
+        raise FileNotFoundError(vikpea_common.TRACKER_PATH)
+    wb = openpyxl.load_workbook(vikpea_common.TRACKER_PATH)
+    ws = wb["邮件追踪"] if "邮件追踪" in wb.sheetnames else wb.active
+    if rownum < 2 or rownum > ws.max_row:
+        raise ValueError("找不到这一行")
+    headers = [str(c.value or "").strip() for c in ws[1]]
+    col_index = {h: i + 1 for i, h in enumerate(headers)}
+
+    for field in TRACKER_EDITABLE_FIELDS:
+        if field in data and field in col_index:
+            ws.cell(rownum, col_index[field]).value = data[field]
+
+    vikpea_common.save_workbook_safe(wb, vikpea_common.TRACKER_PATH, "邮件追踪表")
+    return {"rows": get_tracker_rows()}
+
+
+def is_youtube_search_running() -> bool:
+    return job_runner.is_resource_busy("youtube_search")
+
+
+def start_youtube_search_job() -> str:
+    """
+    跑真正的 VikPea_YouTube批量搜索.py（真子进程，跟桌面工作台用 subprocess 拉起脚本
+    是同一种方式），不是模拟。用真子进程是为了能真正"停止"（杀进程），而不是假装停止。
+    """
+    enabled_keywords = [k for k in list_youtube_keywords() if k["enabled"]]
+    if not enabled_keywords:
+        raise ValueError("没有启用的关键词，先在关键词表里启用至少一个")
+    script_path = os.path.join(WORKSPACE_DIR, "VikPea_YouTube批量搜索.py")
+    return job_runner.start_subprocess_job(
+        "youtube_search",
+        [sys.executable, "-u", script_path],  # -u：子进程标准输出不缓冲，日志才能实时冒出来
+        cwd=WORKSPACE_DIR,
+        label=f"YouTube搜索 {len(enabled_keywords)} 个关键词",
+    )
+
+
+def stop_job(job_id: str) -> bool:
+    return job_runner.stop_job(job_id)
+
+
+def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
+    return job_runner.get_job(job_id)
+
+
+def list_jobs(resource: Optional[str] = None) -> List[Dict[str, Any]]:
+    return job_runner.list_jobs(resource)
 
 
 def get_email_validation_report() -> Dict[str, Any]:

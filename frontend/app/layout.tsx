@@ -3,6 +3,8 @@
  */
 
 import type { ReactNode } from 'react';
+import Sidebar from './components/Sidebar';
+import './globals.css';
 
 export default function RootLayout({
   children,
@@ -20,8 +22,9 @@ export default function RootLayout({
         <meta property="og:description" content="强大的 SEO 和邮箱开发工具" />
         <title>VikPea 外联工作台 | SEO 和邮箱开发平台</title>
       </head>
-      <body className="bg-gray-50">
-        {children}
+      <body className="bg-gray-50 text-gray-900">
+        <Sidebar />
+        <div className="md:pl-60">{children}</div>
       </body>
     </html>
   );

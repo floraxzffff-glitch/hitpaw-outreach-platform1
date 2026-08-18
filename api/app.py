@@ -13,6 +13,7 @@ import os
 import logging
 
 import vikpea_bridge
+from dataforseo_client import DataForSEOClient, test_dataforseo_connection
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -288,6 +289,311 @@ async def scan_seo_opportunities(keyword_input: KeywordInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ======================== 路由 - YouTube KOL 搜索 ========================
+# 这一段直接跑真正的 VikPea_YouTube批量搜索.py（yt-dlp 抓取 + 找邮箱 + 写发信名单），
+# 是分钟级的重活，所以是"提交任务 -> 轮询状态"模式，不是一次性返回结果。
+# 同一时间只能有一个这样的任务在跑（跟桌面工作台共用同一批 xlsx，避免并发写冲突）。
+
+class YoutubeKeywordToggle(BaseModel):
+    keyword: str = Field(..., description="关键词（表里没有会新增一行）")
+    enabled: bool = Field(..., description="是否启用")
+    note: Optional[str] = Field(None, description="备注，不传则不改")
+
+
+@app.get("/api/youtube/keywords", tags=["YouTube"])
+async def list_youtube_keywords():
+    """列出 VikPea_搜索关键词.xlsx 里的所有关键词及启用状态"""
+    return {"keywords": vikpea_bridge.list_youtube_keywords()}
+
+
+@app.post("/api/youtube/keywords/toggle", tags=["YouTube"])
+async def toggle_youtube_keyword(payload: YoutubeKeywordToggle):
+    """开关某个关键词（不存在则新增）；实际写入 VikPea_搜索关键词.xlsx"""
+    try:
+        vikpea_bridge.set_youtube_keyword(payload.keyword, payload.enabled, payload.note)
+        return {"status": "ok", "keywords": vikpea_bridge.list_youtube_keywords()}
+    except Exception as e:
+        logger.error(f"更新关键词失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class YoutubeKeywordsBatch(BaseModel):
+    keywords: List[str] = Field(..., description="一批关键词，比如从 Excel 整列复制粘贴过来的")
+
+
+@app.post("/api/youtube/keywords/batch", tags=["YouTube"])
+async def add_youtube_keywords_batch(payload: YoutubeKeywordsBatch):
+    """一次加一批关键词（粘贴多行时用），全部默认启用"""
+    try:
+        return vikpea_bridge.add_youtube_keywords_batch(payload.keywords)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"批量添加关键词失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/youtube/keywords/{keyword}", tags=["YouTube"])
+async def delete_youtube_keyword(keyword: str):
+    """删除一个关键词"""
+    try:
+        return vikpea_bridge.delete_youtube_keyword(keyword)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"删除关键词失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/youtube/settings", tags=["YouTube"])
+async def get_youtube_settings():
+    """当前生效的搜索参数（粉丝数范围、最低播放量、活跃天数等），读的是 VikPea_配置.xlsx"""
+    return vikpea_bridge.get_youtube_search_settings()
+
+
+@app.put("/api/youtube/settings", tags=["YouTube"])
+async def update_youtube_settings(updates: Dict[str, Any]):
+    """
+    改搜索参数，真实写回 VikPea_配置.xlsx。
+    桌面版工作台读的是同一张表，改了这里桌面版跑出来的结果也会跟着变。
+    """
+    try:
+        return vikpea_bridge.set_youtube_search_settings(updates)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"更新搜索参数失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/youtube/search/start", tags=["YouTube"])
+async def start_youtube_search():
+    """
+    启动一次真实的 YouTube KOL 搜索（跑 VikPea_YouTube批量搜索.py 的 main()）。
+    会真的用 yt-dlp 抓取、写入 VikPea_发信名单.xlsx / VikPea_待确认邮箱.xlsx，
+    跟桌面工作台里点"2. 搜索 YouTube KOL"是同一件事。
+    """
+    if vikpea_bridge.is_youtube_search_running():
+        raise HTTPException(status_code=409, detail="已经有一个 YouTube 搜索任务在跑，等它跑完再开始新的")
+    try:
+        job_id = vikpea_bridge.start_youtube_search_job()
+        return {"job_id": job_id, "status": "running"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/api/youtube/search/jobs/{job_id}", tags=["YouTube"])
+async def get_youtube_search_job(job_id: str):
+    """轮询任务状态和实时日志（就是脚本原本会打印在终端上的那些行）"""
+    job = vikpea_bridge.get_job_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return job
+
+
+@app.get("/api/youtube/search/jobs", tags=["YouTube"])
+async def list_youtube_search_jobs():
+    """列出最近的 YouTube 搜索任务（用来在刷新/重新进入页面后找回还在跑的任务）"""
+    return {"jobs": vikpea_bridge.list_jobs("youtube_search")}
+
+
+@app.post("/api/youtube/search/jobs/{job_id}/stop", tags=["YouTube"])
+async def stop_youtube_search_job(job_id: str):
+    """真正停止（杀掉）正在跑的搜索子进程"""
+    ok = vikpea_bridge.stop_job(job_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="这个任务已经结束，或者不支持停止")
+    return {"status": "stopping"}
+
+
+@app.get("/api/email-templates", tags=["EmailTemplates"])
+async def get_email_templates():
+    """产品信息 + 开发信模板（主题/开头），读的是 VikPea_配置.xlsx。不含 SMTP 密码。"""
+    return vikpea_bridge.get_email_template_settings()
+
+
+@app.put("/api/email-templates", tags=["EmailTemplates"])
+async def update_email_templates(updates: Dict[str, Any]):
+    """
+    改开发信内容，真实写回 VikPea_配置.xlsx。
+    发信脚本（VikPea_读表发信.py）会用这里的内容生成邮件，桌面版和网页版共用。
+    """
+    try:
+        return vikpea_bridge.set_email_template_settings(updates)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"更新邮件模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/system-settings", tags=["Settings"])
+async def get_system_settings():
+    """
+    SMTP/IMAP/搜索引擎API/发信节奏这些系统级配置。
+    密钥类字段（密码、API Key）只返回"是否已设置"，不会把明文传出来。
+    """
+    return vikpea_bridge.get_system_settings()
+
+
+@app.put("/api/system-settings", tags=["Settings"])
+async def update_system_settings(updates: Dict[str, Any]):
+    """
+    改系统设置，真实写回 VikPea_配置.xlsx。
+    密钥类字段留空表示不修改；只有填了新值才会覆盖已保存的密钥。
+    注意：这只是存配置，不会触发任何真实发信或调用外部 API。
+    """
+    try:
+        return vikpea_bridge.set_system_settings(updates)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"更新系统设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/send/preview", tags=["Send"])
+async def preview_send(personalize: bool = False):
+    """
+    第一步：预览本次能发的邮件（跑真实的安全拦截/去重/主题生成逻辑），不会发送任何邮件。
+    跟桌面版点发信脚本时看到的"待发 N 封"列表是同一套计算。
+    """
+    if vikpea_bridge.job_runner.is_resource_busy("email_send"):
+        raise HTTPException(status_code=409, detail="有一批邮件正在发送中，等它跑完再预览")
+    try:
+        return vikpea_bridge.build_send_preview(should_personalize=personalize)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"发信预览失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SendConfirmRequest(BaseModel):
+    preview_id: str = Field(..., description="/api/send/preview 返回的 preview_id")
+    rownums: List[int] = Field(..., description="选中要发送的行号（来自预览结果里的 rownum）")
+
+
+@app.post("/api/send/confirm", tags=["Send"])
+async def confirm_send(payload: SendConfirmRequest):
+    """
+    第二步：明确勾选、明确点击后才会真正建立 SMTP 连接发送。
+    这是唯一会真实发邮件的入口，前端必须先调用 /api/send/preview 拿到 preview_id。
+    """
+    try:
+        job_id = vikpea_bridge.start_send_job(payload.preview_id, payload.rownums)
+        return {"job_id": job_id, "status": "running"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/api/send/jobs/{job_id}", tags=["Send"])
+async def get_send_job(job_id: str):
+    """轮询发信任务状态和实时日志"""
+    job = vikpea_bridge.get_job_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return job
+
+
+@app.get("/api/kol/candidates", tags=["YouTube"])
+async def get_kol_candidates():
+    """
+    候选库：搜索出来的 KOL 都在这里。
+    - confirmed: VikPea_发信名单.xlsx，高置信度，可以直接发信
+    - pending: VikPea_待确认邮箱.xlsx，置信度不够高，要人工确认
+    - no_email: VikPea_无邮箱候选.xlsx，暂时没找到邮箱
+    这三张表是 YouTube 搜索和深度找邮箱共用的产出，不是网页独有的数据。
+    """
+    return {
+        "confirmed": vikpea_bridge.get_confirmed_candidates(),
+        "pending": vikpea_bridge.get_pending_candidates(),
+        "no_email": vikpea_bridge.get_no_email_candidates(),
+    }
+
+
+class ConfirmedCandidateInput(BaseModel):
+    频道名: Optional[str] = None
+    邮箱: Optional[str] = None
+    主页链接: Optional[str] = None
+    视频链接: Optional[str] = None
+    备注: Optional[str] = None
+    类型: Optional[str] = None
+    来源关键词: Optional[str] = None
+
+
+@app.post("/api/kol/candidates/confirmed", tags=["YouTube"])
+async def add_confirmed_candidate(payload: ConfirmedCandidateInput):
+    """人工往「可直接发信」名单里加一条（比如自己搜到、已经确认能发信的博主）"""
+    try:
+        return vikpea_bridge.add_confirmed_candidate(payload.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"添加候选人失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/kol/candidates/confirmed/{rownum}", tags=["YouTube"])
+async def update_confirmed_candidate(rownum: int, payload: ConfirmedCandidateInput):
+    """编辑「可直接发信」名单里的一条（主页链接/视频链接这些）"""
+    try:
+        return vikpea_bridge.update_confirmed_candidate(rownum, payload.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"更新候选人失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/kol/candidates/confirmed/{rownum}", tags=["YouTube"])
+async def delete_confirmed_candidate(rownum: int):
+    """删除「可直接发信」名单里的一条"""
+    try:
+        return vikpea_bridge.delete_confirmed_candidate(rownum)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"删除候选人失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ======================== 路由 - 发送追踪 ========================
+
+@app.get("/api/tracker", tags=["Tracker"])
+async def get_tracker():
+    """已联络记录 + 回复/跟进进度，读的是 VikPea_邮件开发追踪.xlsx"""
+    return {"rows": vikpea_bridge.get_tracker_rows()}
+
+
+class TrackerUpdateInput(BaseModel):
+    是否回复: Optional[str] = None
+    回复摘要: Optional[str] = None
+    当前状态: Optional[str] = None
+    ABC分级: Optional[str] = None
+    跟进1日期: Optional[str] = None
+    跟进1状态: Optional[str] = None
+    跟进2日期: Optional[str] = None
+    跟进2状态: Optional[str] = None
+    最近回复日期: Optional[str] = None
+
+
+@app.put("/api/tracker/{rownum}", tags=["Tracker"])
+async def update_tracker(rownum: int, payload: TrackerUpdateInput):
+    """更新一条追踪记录的回复/跟进状态，真实写回 VikPea_邮件开发追踪.xlsx"""
+    try:
+        return vikpea_bridge.update_tracker_row(rownum, payload.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"更新追踪记录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ======================== 路由 - 报告生成 ========================
 
 @app.post("/api/report/generate", response_model=Report, tags=["Reports"])
@@ -441,6 +747,178 @@ async def get_statistics():
     return stats
 
 
+# ======================== DataForSEO API ========================
+
+class DataForSEOTestRequest(BaseModel):
+    """DataForSEO API 连接测试请求"""
+    login: str = Field(..., description="DataForSEO API 用户名")
+    password: str = Field(..., description="DataForSEO API 密码")
+
+
+@app.post("/api/dataforseo/test", tags=["DataForSEO"])
+async def test_dataforseo(payload: DataForSEOTestRequest):
+    """
+    测试 DataForSEO API 连接和余额
+    返回账户余额、限制等信息
+    """
+    try:
+        result = await test_dataforseo_connection(payload.login, payload.password)
+        return result
+    except Exception as e:
+        logger.error(f"DataForSEO 连接测试失败: {e}")
+        return {
+            "success": False,
+            "message": f"测试失败: {str(e)}"
+        }
+
+
+# 注意：DataForSEO Labs 没有 YouTube 频道搜索功能
+# 以下端点已被新的多渠道KOL发现功能替代：
+# - /api/dataforseo/keyword-research (关键词研究)
+# - /api/dataforseo/find-influencer-websites (Google搜索KOL网站)
+# - /api/dataforseo/youtube-video-search (通过视频发现频道)
+
+
+# ==================== 新增：多渠道KOL发现功能 ====================
+
+class KeywordResearchRequest(BaseModel):
+    """关键词研究请求"""
+    seed_keyword: str = Field(..., description="种子关键词，如 'tech review'")
+    language_code: str = Field("en", description="语言代码")
+    location_code: int = Field(2840, description="地区代码，2840=美国, 2156=中国")
+    limit: int = Field(100, description="返回数量", ge=1, le=200)
+
+
+@app.post("/api/dataforseo/keyword-research", tags=["DataForSEO"])
+async def keyword_research(payload: KeywordResearchRequest):
+    """
+    关键词研究 - 找到高价值关键词
+    用这些关键词去YouTube API搜索频道
+    """
+    try:
+        config = vikpea_bridge.vikpea_common.load_config()
+        login = config.get("DATAFORSEO_LOGIN")
+        password = config.get("DATAFORSEO_PASSWORD")
+
+        if not login or not password:
+            raise HTTPException(
+                status_code=400,
+                detail="请先在系统设置中配置 DataForSEO API 凭证"
+            )
+
+        client = DataForSEOClient(login, password)
+        keywords = await client.keyword_research(
+            seed_keyword=payload.seed_keyword,
+            language_code=payload.language_code,
+            location_code=payload.location_code,
+            limit=payload.limit
+        )
+
+        return {
+            "seed_keyword": payload.seed_keyword,
+            "total": len(keywords),
+            "keywords": keywords
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"关键词研究失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class InfluencerWebsiteSearchRequest(BaseModel):
+    """KOL网站搜索请求"""
+    niche: str = Field(..., description="领域/行业，如 'tech blogger', 'gaming youtuber'")
+    language_code: str = Field("en", description="语言代码")
+    location_code: int = Field(2840, description="地区代码")
+    depth: int = Field(20, description="搜索深度", ge=1, le=100)
+
+
+@app.post("/api/dataforseo/find-influencer-websites", tags=["DataForSEO"])
+async def find_influencer_websites(payload: InfluencerWebsiteSearchRequest):
+    """
+    在Google上搜索博主/KOL的个人网站
+    可以找到博主的官网、YouTube频道、社交媒体等
+    """
+    try:
+        config = vikpea_bridge.vikpea_common.load_config()
+        login = config.get("DATAFORSEO_LOGIN")
+        password = config.get("DATAFORSEO_PASSWORD")
+
+        if not login or not password:
+            raise HTTPException(
+                status_code=400,
+                detail="请先在系统设置中配置 DataForSEO API 凭证"
+            )
+
+        client = DataForSEOClient(login, password)
+        websites = await client.search_influencer_websites(
+            niche=payload.niche,
+            language_code=payload.language_code,
+            location_code=payload.location_code,
+            depth=payload.depth
+        )
+
+        return {
+            "niche": payload.niche,
+            "total": len(websites),
+            "websites": websites
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"搜索KOL网站失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class YouTubeVideoSearchRequest(BaseModel):
+    """YouTube视频搜索请求"""
+    keyword: str = Field(..., description="搜索关键词")
+    language_code: str = Field("en", description="语言代码")
+    location_code: int = Field(2840, description="地区代码")
+    depth: int = Field(20, description="搜索深度", ge=1, le=100)
+
+
+@app.post("/api/dataforseo/youtube-video-search", tags=["DataForSEO"])
+async def youtube_video_search(payload: YouTubeVideoSearchRequest):
+    """
+    搜索YouTube视频，提取频道ID
+    通过视频间接发现频道（一个频道可能有多个热门视频）
+    """
+    try:
+        config = vikpea_bridge.vikpea_common.load_config()
+        login = config.get("DATAFORSEO_LOGIN")
+        password = config.get("DATAFORSEO_PASSWORD")
+
+        if not login or not password:
+            raise HTTPException(
+                status_code=400,
+                detail="请先在系统设置中配置 DataForSEO API 凭证"
+            )
+
+        client = DataForSEOClient(login, password)
+        channels = await client.search_youtube_videos(
+            keyword=payload.keyword,
+            language_code=payload.language_code,
+            location_code=payload.location_code,
+            depth=payload.depth
+        )
+
+        return {
+            "keyword": payload.keyword,
+            "total": len(channels),
+            "channels": channels  # 已去重的频道列表
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"YouTube视频搜索失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ======================== 后台任务 ========================
 
 async def process_keywords_batch(task_id: str, keywords: List[KeywordInput]):
@@ -492,18 +970,6 @@ async def shutdown_event():
     logger.info("🛑 VikPea SEO API 关闭")
     # TODO: 清理资源
     pass
-
-
-# ======================== 错误处理 ========================
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    """HTTP 异常处理"""
-    return {
-        "error": exc.detail,
-        "status_code": exc.status_code,
-        "timestamp": datetime.now().isoformat()
-    }
 
 
 # ======================== 静态文件（可选） ========================
