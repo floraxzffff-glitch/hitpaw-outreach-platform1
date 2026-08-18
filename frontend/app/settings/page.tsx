@@ -48,6 +48,8 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [filterConfig, setFilterConfig] = useState<any>(null);
+  const [isUploadingFilter, setIsUploadingFilter] = useState(false);
 
   const load = async () => {
     try {
@@ -55,6 +57,10 @@ export default function SettingsPage() {
       const data = await vikpeaAPI.getSystemSettings();
       setSettings(data);
       setDraft(data);
+
+      // 加载过滤配置
+      const filterData = await vikpeaAPI.getFilterConfig();
+      setFilterConfig(filterData);
     } catch (err: any) {
       setError(err.message || '加载设置失败');
     } finally {
@@ -99,6 +105,39 @@ export default function SettingsPage() {
       setError(err.message || '保存失败');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleFilterUpload = async (configType: string, file: File) => {
+    try {
+      setIsUploadingFilter(true);
+      setError(null);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(
+        `http://localhost:8000/api/upload/filter-config?config_type=${configType}`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('上传失败');
+      }
+
+      // 重新加载过滤配置
+      const filterData = await vikpeaAPI.getFilterConfig();
+      setFilterConfig(filterData);
+
+      setSuccess('过滤配置已上传！');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || '上传过滤配置失败');
+    } finally {
+      setIsUploadingFilter(false);
     }
   };
 
@@ -338,6 +377,134 @@ export default function SettingsPage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <p className="text-xs text-gray-400 mt-1">推荐：claude-3-5-sonnet-20241022（性能最佳）</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 过滤配置管理 */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-lg font-bold text-gray-900 mb-1">🚫 KOL过滤配置</h2>
+                <p className="text-xs text-gray-400 mb-4">
+                  上传Excel配置文件来管理负关键词、竞品站点、邮箱黑名单等过滤规则
+                </p>
+
+                {filterConfig && (
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">当前配置统计</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <span className="text-gray-500">负关键词：</span>
+                        <span className="font-semibold text-gray-900">{filterConfig.negative_keywords_count}个</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">竞品站点：</span>
+                        <span className="font-semibold text-gray-900">{filterConfig.competitor_sites_count}个</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">竞品邮箱：</span>
+                        <span className="font-semibold text-gray-900">{filterConfig.competitor_email_suffixes_count}个</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Affiliate黑名单：</span>
+                        <span className="font-semibold text-gray-900">{filterConfig.affiliate_blacklist_count}个</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">长期合作名单：</span>
+                        <span className="font-semibold text-gray-900">{filterConfig.longterm_partners_count}个</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  {/* 视频负关键词 */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">📹 视频负关键词</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      检查视频标题和简介中的品牌词（如hitpaw、tenorshare），根据合作时间决定是否排除
+                    </p>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFilterUpload('negative_keywords', file);
+                      }}
+                      disabled={isUploadingFilter}
+                      className="text-xs"
+                    />
+                  </div>
+
+                  {/* 竞品站点黑名单 */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">🌐 竞品站点黑名单</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      排除推广过竞品站点的KOL
+                    </p>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFilterUpload('competitor_sites', file);
+                      }}
+                      disabled={isUploadingFilter}
+                      className="text-xs"
+                    />
+                  </div>
+
+                  {/* 竞品邮箱后缀 */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">✉️ 竞品邮箱后缀</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      排除特定邮箱后缀（如竞品公司邮箱）
+                    </p>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFilterUpload('competitor_emails', file);
+                      }}
+                      disabled={isUploadingFilter}
+                      className="text-xs"
+                    />
+                  </div>
+
+                  {/* Affiliate黑名单 */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">🚫 Affiliate黑名单</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      排除已知的Affiliate用户
+                    </p>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFilterUpload('affiliate_blacklist', file);
+                      }}
+                      disabled={isUploadingFilter}
+                      className="text-xs"
+                    />
+                  </div>
+
+                  {/* 长期合作名单 */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">🤝 长期合作名单</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      排除已建立长期合作关系的KOL
+                    </p>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFilterUpload('longterm_partners', file);
+                      }}
+                      disabled={isUploadingFilter}
+                      className="text-xs"
+                    />
                   </div>
                 </div>
               </div>

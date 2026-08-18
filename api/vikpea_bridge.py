@@ -36,6 +36,7 @@ import VikPea_关键词复盘 as keyword_review  # noqa: E402
 import VikPea_读表发信 as outreach_sender  # noqa: E402
 
 import job_runner  # noqa: E402
+import filter_config  # noqa: E402
 
 SEO_SCAN_OUTPUT = os.path.join(WORKSPACE_DIR, "VikPea_SEO渠道机会扫描.xlsx")
 
@@ -577,7 +578,62 @@ def start_send_job(preview_id: str, selected_rownums: List[int]) -> str:
 def get_confirmed_candidates() -> List[Dict[str, Any]]:
     """VikPea_发信名单.xlsx —— 高置信度、可以直接发信的候选人"""
     rows = _workbook_rows(vikpea_common.QUEUE_PATH)
-    return [r for r in rows if str(r.get("频道名") or "").strip()]
+    candidates = [r for r in rows if str(r.get("频道名") or "").strip()]
+
+    # 应用过滤规则
+    config = filter_config.get_filter_config()
+    filtered_candidates = []
+
+    for candidate in candidates:
+        channel_name = str(candidate.get("频道名", ""))
+        email = str(candidate.get("邮箱", ""))
+        video_url = str(candidate.get("视频链接", ""))
+        channel_url = str(candidate.get("主页链接", ""))
+        video_title = str(candidate.get("视频标题", ""))
+        video_desc = str(candidate.get("视频简介", ""))
+
+        # 初始化过滤标记
+        candidate["_filter_warnings"] = []
+        candidate["_filter_excluded"] = False
+
+        # 1. 检查负关键词
+        should_exclude, keyword, days = config.check_negative_keywords(
+            video_title, video_desc, candidate.get("最后合作日期")
+        )
+        if keyword:
+            if should_exclude:
+                candidate["_filter_excluded"] = True
+                if days is not None:
+                    candidate["_filter_warnings"].append(f"❌ 合作过 {keyword}（{days}天前，未超过阈值）")
+                else:
+                    candidate["_filter_warnings"].append(f"❌ 合作过 {keyword}")
+            else:
+                candidate["_filter_warnings"].append(f"⚠️ {days}天前合作过 {keyword}")
+
+        # 2. 检查竞品站点
+        is_competitor, site = config.check_competitor_site(video_url, channel_url)
+        if is_competitor:
+            candidate["_filter_excluded"] = True
+            candidate["_filter_warnings"].append(f"❌ 推广过竞品站点: {site}")
+
+        # 3. 检查竞品邮箱
+        is_competitor_email, suffix = config.check_competitor_email(email)
+        if is_competitor_email:
+            candidate["_filter_excluded"] = True
+            candidate["_filter_warnings"].append(f"❌ 竞品邮箱: {suffix}")
+
+        # 4. 检查黑名单
+        is_blacklisted, reason = config.check_blacklist(channel_name, email)
+        if is_blacklisted:
+            candidate["_filter_excluded"] = True
+            if reason == "affiliate":
+                candidate["_filter_warnings"].append("❌ Affiliate黑名单")
+            elif reason == "longterm":
+                candidate["_filter_warnings"].append("❌ 长期合作名单")
+
+        filtered_candidates.append(candidate)
+
+    return filtered_candidates
 
 
 def get_pending_candidates() -> List[Dict[str, Any]]:

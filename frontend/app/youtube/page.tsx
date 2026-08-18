@@ -788,7 +788,22 @@ export default function YoutubePage() {
                               />
                             </td>
                           )}
-                          <td className="py-2 pr-4 font-medium text-gray-900">{row['频道名']}</td>
+                          <td className="py-2 pr-4 font-medium text-gray-900">
+                            <div>
+                              <div className={row._filter_excluded ? 'line-through text-gray-400' : ''}>
+                                {row['频道名']}
+                              </div>
+                              {row._filter_warnings && row._filter_warnings.length > 0 && (
+                                <div className="mt-1 space-y-1">
+                                  {row._filter_warnings.map((warning: string, idx: number) => (
+                                    <div key={idx} className="text-xs text-orange-600">
+                                      {warning}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
                           <td className="py-2 pr-4 font-mono text-xs">
                             {row['邮箱'] || row['候选邮箱']}
                           </td>

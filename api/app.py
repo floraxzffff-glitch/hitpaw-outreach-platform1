@@ -14,6 +14,7 @@ import logging
 
 import vikpea_bridge
 from dataforseo_client import DataForSEOClient, test_dataforseo_connection
+import filter_config
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -745,6 +746,84 @@ async def get_statistics():
     stats = vikpea_bridge.get_dashboard_stats()
     stats["last_updated"] = datetime.now()
     return stats
+
+
+# ======================== 路由 - 过滤配置管理 ========================
+
+@app.get("/api/filter-config", tags=["Filter"])
+async def get_filter_config():
+    """
+    获取当前过滤配置统计信息
+    """
+    config = filter_config.get_filter_config()
+    return {
+        "negative_keywords": list(config.negative_keywords.keys()),
+        "negative_keywords_count": len(config.negative_keywords),
+        "competitor_sites_count": len(config.competitor_sites),
+        "competitor_email_suffixes_count": len(config.competitor_email_suffixes),
+        "affiliate_blacklist_count": len(config.affiliate_blacklist),
+        "longterm_partners_count": len(config.longterm_partners),
+    }
+
+
+@app.post("/api/filter-config/reload", tags=["Filter"])
+async def reload_filter_config():
+    """
+    重新加载过滤配置（上传新的Excel后调用）
+    """
+    try:
+        filter_config.reload_filter_config()
+        return {
+            "status": "success",
+            "message": "过滤配置已重新加载"
+        }
+    except Exception as e:
+        logger.error(f"重新加载过滤配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/upload/filter-config", tags=["Filter"])
+async def upload_filter_config(
+    file: UploadFile = File(...),
+    config_type: str = "negative_keywords"
+):
+    """
+    上传过滤配置Excel文件
+    config_type: negative_keywords, competitor_sites, competitor_emails, affiliate_blacklist, longterm_partners
+    """
+    import shutil
+
+    # 根据类型确定目标文件路径
+    file_map = {
+        "negative_keywords": filter_config.NEGATIVE_KEYWORDS_PATH,
+        "competitor_sites": filter_config.COMPETITOR_SITES_PATH,
+        "competitor_emails": filter_config.COMPETITOR_EMAILS_PATH,
+        "affiliate_blacklist": filter_config.AFFILIATE_BLACKLIST_PATH,
+        "longterm_partners": filter_config.LONGTERM_PARTNERS_PATH,
+    }
+
+    if config_type not in file_map:
+        raise HTTPException(status_code=400, detail=f"无效的配置类型: {config_type}")
+
+    target_path = file_map[config_type]
+
+    try:
+        # 保存上传的文件
+        with open(target_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # 重新加载配置
+        filter_config.reload_filter_config()
+
+        return {
+            "filename": file.filename,
+            "config_type": config_type,
+            "status": "uploaded",
+            "message": f"{config_type} 配置已上传并加载"
+        }
+    except Exception as e:
+        logger.error(f"上传过滤配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ======================== DataForSEO API ========================
