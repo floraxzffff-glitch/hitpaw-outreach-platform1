@@ -4,7 +4,7 @@ services:
   # ======================== FastAPI 后端 ========================
   api:
     build:
-      context: ..
+      context: .
       dockerfile: api/Dockerfile
     container_name: vikpea-api
     ports:
@@ -21,12 +21,10 @@ services:
       - db
       - cache
     volumes:
-      - ./api:/app
       - ./logs:/app/logs
       - ./uploads:/app/uploads
       - ./data:/app/data
       - ./workspace:/app/workspace
-    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - vikpea-network
     restart: unless-stopped
@@ -74,7 +72,7 @@ services:
   # ======================== Next.js 前端 ========================
   frontend:
     build:
-      context: ..
+      context: .
       dockerfile: frontend/Dockerfile
     container_name: vikpea-frontend
     ports:
@@ -87,9 +85,6 @@ services:
       - NODE_ENV=production
     depends_on:
       - api
-    volumes:
-      - ./frontend:/app
-      - /app/.next
     networks:
       - vikpea-network
     restart: unless-stopped
