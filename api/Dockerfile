@@ -33,8 +33,8 @@ COPY --from=builder /app/venv /app/venv
 COPY api/ /app/
 COPY src/ /app/src/
 
-# 创建必要的目录
-RUN mkdir -p /app/logs /app/uploads /app/data
+# 创建必要的目录（包括 workspace 用于存放 VikPea 工作台文件）
+RUN mkdir -p /app/logs /app/uploads /app/data /app/workspace
 
 # 设置环境变量
 ENV PATH="/app/venv/bin:$PATH" \

@@ -1,0 +1,31 @@
+# VikPea 工作台目录
+#
+# 这个目录用于存放 VikPea 原工作台的脚本和数据文件：
+# - VikPea_*.py（Python 脚本模块）
+# - VikPea_*.xlsx（配置文件、候选人名单、追踪表等）
+# - job_runner.py、filter_config.py 等辅助模块
+#
+# 部署时需要从本地工作台目录（VikPea工作台_Mac试用包_2026-08-12/01_请在这个文件夹里操作）
+# 复制以下文件到这个目录：
+#
+# Python 模块：
+# - VikPea_common.py
+# - VikPea_关键词聚类.py
+# - VikPea_关键词复盘.py
+# - VikPea_读表发信.py
+# - VikPea_YouTube批量搜索.py
+# - job_runner.py
+# - filter_config.py
+#
+# Excel 数据文件：
+# - VikPea_配置.xlsx
+# - VikPea_发信名单.xlsx
+# - VikPea_邮件开发追踪.xlsx
+# - VikPea_YouTube搜索关键词.xlsx
+# - VikPea_SEO渠道机会扫描.xlsx（如果有）
+# - VikPea_待确认邮箱.xlsx（如果有）
+# - VikPea_无邮箱候选.xlsx（如果有）
+# - VikPea_文章关键词.xlsx（如果有）
+# - config/blacklist.xlsx（如果有黑名单配置）
+#
+# 注意：Excel 文件包含实际业务数据，不要提交到 git

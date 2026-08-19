@@ -52,6 +52,11 @@ VikPea_*.xlsx
 .processed_message_ids.json
 .deep_email_checked_links.json
 
+# VikPea workspace (contains business data, do not commit)
+workspace/*.xlsx
+workspace/*.py
+workspace/config/
+
 # Testing
 .pytest_cache/
 .coverage
