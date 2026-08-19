@@ -80,7 +80,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # 浏览器访问的 API 地址（需根据实际部署修改）
+      # 本地开发: http://localhost:8000
+      # 生产环境: http://你的域名或IP:8000 或使用 nginx 反向代理
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - NODE_ENV=production
     depends_on:
       - api
