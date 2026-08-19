@@ -13,10 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-WORKSPACE_DIR = os.environ.get(
-    "VIKPEA_WORKSPACE_DIR",
-    "/Users/xuzifu/Downloads/VikPea工作台/VikPea工作台_Mac试用包_2026-08-12/01_请在这个文件夹里操作",
-)
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "/app/workspace")
 
 if not os.path.isdir(WORKSPACE_DIR):
     raise RuntimeError(f"找不到 VikPea 工作台目录: {WORKSPACE_DIR}")

@@ -32,6 +32,7 @@ COPY --from=builder /app/venv /app/venv
 # 复制应用代码
 COPY api/ /app/
 COPY src/ /app/src/
+COPY workspace/ /app/workspace/
 
 # 创建必要的目录（包括 workspace 用于存放 VikPea 工作台文件）
 RUN mkdir -p /app/logs /app/uploads /app/data /app/workspace

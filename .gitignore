@@ -48,13 +48,13 @@ logs/
 .broken_*
 
 # VikPea data files (local backups, not version controlled)
-VikPea_*.xlsx
+# VikPea_*.xlsx  # 注释掉，workspace 下的需要提交
 .processed_message_ids.json
 .deep_email_checked_links.json
 
 # VikPea workspace (contains business data, do not commit)
-workspace/*.xlsx
-workspace/*.py
+# workspace/*.xlsx  # 注释掉，需要随 Docker 部署
+# workspace/*.py    # 注释掉，需要随 Docker 部署
 workspace/config/
 
 # Testing

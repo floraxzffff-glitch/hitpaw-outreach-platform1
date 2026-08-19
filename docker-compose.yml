@@ -16,7 +16,7 @@ services:
       - REDIS_URL=redis://cache:6379/0
       - CELERY_BROKER_URL=redis://cache:6379/1
       - CELERY_RESULT_BACKEND=redis://cache:6379/2
-      - VIKPEA_WORKSPACE_DIR=/app/workspace
+      - WORKSPACE_DIR=/app/workspace
     depends_on:
       - db
       - cache
