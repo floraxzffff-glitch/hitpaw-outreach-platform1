@@ -205,8 +205,8 @@ class VikPeaAPI {
   private axiosInstance: AxiosInstance;
   private baseURL: string;
 
-  constructor(baseURL: string = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') {
-    this.baseURL = baseURL;
+  constructor(baseURL: string = process.env.NEXT_PUBLIC_API_URL || '') {
+    this.baseURL = baseURL || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8000') : 'http://localhost:8000');
     this.axiosInstance = axios.create({
       baseURL: this.baseURL,
       timeout: 30000,

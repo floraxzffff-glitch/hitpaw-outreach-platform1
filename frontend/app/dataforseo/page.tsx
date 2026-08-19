@@ -34,7 +34,7 @@ export default function DataForSEOPage() {
 
     setTestLoading(true)
     try {
-      const response = await fetch('http://localhost:8000/api/dataforseo/test', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/dataforseo/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ login: testLogin, password: testPassword })
@@ -56,7 +56,7 @@ export default function DataForSEOPage() {
 
     setKeywordLoading(true)
     try {
-      const response = await fetch('http://localhost:8000/api/dataforseo/keyword-research', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/dataforseo/keyword-research`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -83,7 +83,7 @@ export default function DataForSEOPage() {
 
     setGoogleLoading(true)
     try {
-      const response = await fetch('http://localhost:8000/api/dataforseo/find-influencer-websites', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/dataforseo/find-influencer-websites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -110,7 +110,7 @@ export default function DataForSEOPage() {
 
     setYoutubeLoading(true)
     try {
-      const response = await fetch('http://localhost:8000/api/dataforseo/youtube-video-search', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/dataforseo/youtube-video-search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -117,7 +117,7 @@ export default function SettingsPage() {
       formData.append('file', file);
 
       const response = await fetch(
-        `http://localhost:8000/api/upload/filter-config?config_type=${configType}`,
+        `${process.env.NEXT_PUBLIC_API_URL || ''}/api/upload/filter-config?config_type=${configType}`,
         {
           method: 'POST',
           body: formData,
