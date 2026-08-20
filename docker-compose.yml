@@ -26,8 +26,7 @@ services:
       - ./logs:/app/logs
       - ./uploads:/app/uploads
       - ./data:/app/data
-      - ./workspace:/app/workspace
-      - ./01_请在这个文件夹里操作:/app/workspace/01_请在这个文件夹里操作:ro
+      - ./01_请在这个文件夹里操作:/app/workspace:ro
     networks:
       - vikpea-network
     restart: unless-stopped
