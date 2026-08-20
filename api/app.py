@@ -899,8 +899,9 @@ async def get_contact_threshold():
     try:
         threshold = contact_threshold_config.get_contact_threshold()
         return {
-            "threshold_days": threshold,
-            "message": f"当前联络历史时间阈值为 {threshold} 天"
+            "followup1_after_days": threshold.get("followup1_after_days", 5),
+            "followup2_after_days": threshold.get("followup2_after_days", 7),
+            "message": f"当前联络历史时间阈值为 followup1={threshold.get('followup1_after_days', 5)} 天, followup2={threshold.get('followup2_after_days', 7)} 天"
         }
     except Exception as e:
         logger.error(f"获取联络历史阈值失败: {e}")
