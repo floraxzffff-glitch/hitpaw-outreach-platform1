@@ -1,60 +1,31 @@
-# 敏感配置文件
-.env
-*.env
-.env.*
-!.env.example
-
-# Python
+# Dependencies
+node_modules/
 __pycache__/
-*.py[cod]
 *.pyc
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+*.pyo
+*.pyd
 
-# 运行时生成的文件
-youtube_quota.json
-search_checkpoint.json
-VikPea_运行日志.txt
-*.log
+# Environment files
+.env
+.env.local
 
-# Excel临时文件
-~$*.xlsx
-.~*.xlsx
-
-# macOS
+# OS files
 .DS_Store
-.AppleDouble
-.LSOverride
+Thumbs.db
 
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
-# Node.js (for frontend)
-node_modules/
+# Build outputs
+dist/
+build/
+*.egg-info/
 
-# Vercel
-.vercel/
+# Temporary files
+*.tmp
+*.log
+.~*
 
-# 测试输出
-test_output.xlsx
-test_checkpoint.json
+# Large files
+*.node

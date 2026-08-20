@@ -824,41 +824,6 @@ def start_youtube_search_job() -> str:
     )
 
 
-def start_youtube_expansion_job(seed_keywords: List[str], vph_threshold: int = 20,
-                                 max_keywords: int = 50, depth: int = 1,
-                                 skip_expansion: bool = False) -> str:
-    """
-    启动 YouTube 关键词拓展+视频搜索任务（使用 main.py）
-    这是新的关键词拓展工具，使用 YouTube Data API v3
-    """
-    if not seed_keywords:
-        raise ValueError("至少需要一个种子关键词")
-
-    script_path = os.path.join(WORKSPACE_DIR, "main.py")
-    if not os.path.exists(script_path):
-        raise ValueError("找不到 main.py，请确保新工具已安装")
-
-    # 构建命令参数
-    cmd = [sys.executable, "-u", script_path]
-    for seed in seed_keywords:
-        cmd.extend(["--seed", seed])
-    cmd.extend([
-        "--vph-threshold", str(vph_threshold),
-        "--max-keywords", str(max_keywords),
-        "--depth", str(depth),
-        "--output", f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    ])
-    if skip_expansion:
-        cmd.append("--skip-expansion")
-
-    return job_runner.start_subprocess_job(
-        "youtube_expansion",
-        cmd,
-        cwd=WORKSPACE_DIR,
-        label=f"YouTube关键词拓展 {len(seed_keywords)} 个种子词",
-    )
-
-
 def stop_job(job_id: str) -> bool:
     return job_runner.stop_job(job_id)
 

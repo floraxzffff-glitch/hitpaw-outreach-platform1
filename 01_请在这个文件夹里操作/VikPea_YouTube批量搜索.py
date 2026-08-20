@@ -18,6 +18,12 @@ from datetime import datetime, timedelta
 from xml.etree import ElementTree as ET
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("⚠️ python-dotenv not installed, will use hardcoded config")
+
+try:
     import openpyxl
     from openpyxl.styles import PatternFill
 except ImportError:
@@ -111,9 +117,17 @@ YOUTUBE_API_429_COOLDOWN = 8
 SHORTS_MAX_SECONDS = 70
 DEEPSEEK_API_KEY = ""
 DEEPSEEK_API_BASE = ""
-ANTHROPIC_API_KEY = "sk-2kPXDoMCCYy0E80asC2jVkhUgBeT6n0swDLBL2RKpQwlCfTp"
-ANTHROPIC_API_BASE = "https://api.vectorengine.ai/v1"
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_BASE = os.getenv("ANTHROPIC_API_BASE", "https://api.vectorengine.ai/v1")
 ANTHROPIC_TAG_MODEL = "claude-3-5-sonnet-20241022"
+
+# 频道综合评分权重配置
+CHANNEL_SCORE_WEIGHTS = {
+    "content_relevance": 0.5,
+    "commercial_history": 0.2,
+    "audience_fit": 0.15,
+    "avg_views_normalized": 0.15,
+}
 
 # 默认关键词。若同目录存在 VikPea_搜索关键词.xlsx，会优先使用表格第一列。
 BASE_KEYWORDS = [
@@ -285,6 +299,161 @@ def call_deepseek_for_tag(channel_name: str, bio: str, titles: list) -> str:
         return ""
 
 
+def call_claude_for_channel_scoring(channel_name: str, bio: str, titles: list,
+                                     subs: int, hit_video_title: str, product_context: str = "HitPaw VikPea 视频增强工具") -> dict:
+    """
+    频道综合画像 AI 评分 - 评估整个频道是否适合合作
+    返回: {
+        "content_relevance": int (0-100),
+        "commercial_history": int (0-100),
+        "audience_fit": int (0-100),
+        "verdict": str ("推荐" | "待人工确认" | "不推荐"),
+        "reasoning": str
+    }
+    """
+    if not ANTHROPIC_API_KEY:
+        return {
+            "content_relevance": 0,
+            "commercial_history": 0,
+            "audience_fit": 0,
+            "verdict": "待人工确认",
+            "reasoning": "AI评分未启用（缺少API密钥）"
+        }
+
+    titles_text = "\n".join(f"- {t}" for t in titles[:10]) if titles else "（无）"
+    bio_text = bio[:500] if bio else "（无）"
+
+    prompt = f"""你是一个 KOL 筛选专家。请评估以下 YouTube 频道是否适合推广"{product_context}"。
+
+频道信息：
+- 频道名：{channel_name}
+- 订阅数：{subs:,}
+- 频道简介：{bio_text}
+- 近期视频标题：
+{titles_text}
+- 命中的视频标题：{hit_video_title}
+
+评分标准：
+1. **内容相关度 (0-100分)**：
+   - 重要：不要只看命中的那一条视频，要综合判断整个频道的内容定位
+   - 即使频道从未直接提到产品关键词，只要整体内容定位与视频增强/视频编辑/视频质量提升相关，也应给高分
+   - 例如：视频编辑教程频道、视频后期制作频道、摄影摄像频道、内容创作者工具测评频道等都高度相关
+   - 泛娱乐、游戏实况、生活Vlog等不相关内容给低分
+
+2. **商业化历史 (0-100分)**：
+   - 基于近期视频标题判断是否有商业合作痕迹
+   - 关键词：sponsored、ad、partnership、review（产品测评）、vs（产品对比）、affiliate、promo code
+   - 提到其他软件品牌名（Topaz、Aiarty、DemoCreator、Adobe、CapCut等）通常说明有商业合作经验
+   - 有明显商业化痕迹给高分(80-100)，偶尔商业化给中分(40-70)，无商业化痕迹给低分(0-30)
+
+3. **受众匹配度 (0-100分)**：
+   - 基于内容风格判断受众是否偏工具型/技术型（而非泛娱乐型）
+   - 教程类、测评类、对比类、工作流分享类内容的受众更匹配 → 高分
+   - 纯娱乐、搞笑、剧情类内容的受众不匹配 → 低分
+
+请严格按以下JSON格式输出（不要添加任何markdown格式符号或额外文本）：
+{{
+  "content_relevance": <0-100的整数>,
+  "commercial_history": <0-100的整数>,
+  "audience_fit": <0-100的整数>,
+  "verdict": "<推荐|待人工确认|不推荐>",
+  "reasoning": "<一句话说明判断依据，50字以内>"
+}}"""
+
+    payload = json.dumps({
+        "model": ANTHROPIC_TAG_MODEL,
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+
+    api_base = ANTHROPIC_API_BASE if ANTHROPIC_API_BASE else "https://api.anthropic.com"
+
+    # 重试逻辑：3次重试，指数退避
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                f"{api_base}/messages",
+                data=payload,
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                method="POST",
+            )
+
+            resp = safe_urlopen(req, timeout=20)
+            body = json.loads(resp.read().decode("utf-8"))
+            content = body.get("content", [])
+            if not content or len(content) == 0:
+                if attempt < 2:
+                    time.sleep(1 << attempt)  # 1s, 2s, 4s
+                    continue
+                return {
+                    "content_relevance": 0,
+                    "commercial_history": 0,
+                    "audience_fit": 0,
+                    "verdict": "待人工确认",
+                    "reasoning": "AI评分调用失败（响应为空）"
+                }
+
+            text = content[0].get("text", "").strip()
+
+            # 尝试解析JSON
+            # 去掉可能的markdown代码块标记
+            text = re.sub(r"^```json\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+
+            try:
+                result = json.loads(text)
+                # 验证必需字段
+                if all(k in result for k in ["content_relevance", "commercial_history", "audience_fit", "verdict", "reasoning"]):
+                    # 确保数值在0-100范围内
+                    result["content_relevance"] = max(0, min(100, int(result["content_relevance"])))
+                    result["commercial_history"] = max(0, min(100, int(result["commercial_history"])))
+                    result["audience_fit"] = max(0, min(100, int(result["audience_fit"])))
+                    # 确保verdict是有效值
+                    if result["verdict"] not in ["推荐", "待人工确认", "不推荐"]:
+                        result["verdict"] = "待人工确认"
+                    return result
+            except (json.JSONDecodeError, ValueError, KeyError):
+                if attempt < 2:
+                    time.sleep(1 << attempt)
+                    continue
+                pass
+
+            # JSON解析失败，返回默认值
+            return {
+                "content_relevance": 0,
+                "commercial_history": 0,
+                "audience_fit": 0,
+                "verdict": "待人工确认",
+                "reasoning": "AI评分调用失败（JSON解析失败）"
+            }
+
+        except Exception as exc:
+            print(f"      ↳ AI频道评分失败（尝试 {attempt+1}/3）：{exc}")
+            if attempt < 2:
+                time.sleep(1 << attempt)
+                continue
+            return {
+                "content_relevance": 0,
+                "commercial_history": 0,
+                "audience_fit": 0,
+                "verdict": "待人工确认",
+                "reasoning": f"AI评分调用失败：{str(exc)[:30]}"
+            }
+
+    # 所有重试都失败
+    return {
+        "content_relevance": 0,
+        "commercial_history": 0,
+        "audience_fit": 0,
+        "verdict": "待人工确认",
+        "reasoning": "AI评分调用失败（重试3次后仍失败）"
+    }
+
+
 def call_claude_for_analysis(channel_name: str, bio: str, titles: list, comments: list) -> dict:
     """
     使用 Claude API (via VectorEngine) 进行完整频道分析
@@ -398,6 +567,10 @@ def call_claude_for_analysis(channel_name: str, bio: str, titles: list, comments
 Q_NAME  = 1; Q_EMAIL = 2; Q_SUBJ = 3; Q_OPEN = 4
 Q_HOME  = 5; Q_VIDEO = 6; Q_NOTE  = 7; Q_TYPE = 8; Q_SOURCE = 9; Q_TAG = 10
 Q_VERTICAL_SCORE = 11; Q_COMPETITOR = 12; Q_COLLAB_TYPE = 13
+# 新增：频道综合评分相关列
+Q_CONTENT_RELEVANCE = 14; Q_COMMERCIAL_HISTORY = 15; Q_AUDIENCE_FIT = 16
+Q_COMPOSITE_SCORE = 17; Q_AI_VERDICT = 18; Q_AI_REASONING = 19
+Q_AVG_RECENT_VIEWS = 20
 # ────────────────────────────────────────────────────────────────
 
 MARKET_POSITIVE_SIGNALS = {
@@ -568,6 +741,13 @@ def ensure_queue_headers(ws):
         Q_VERTICAL_SCORE: "垂直度",
         Q_COMPETITOR: "推过竞品",
         Q_COLLAB_TYPE: "合作方式",
+        Q_CONTENT_RELEVANCE: "内容相关度",
+        Q_COMMERCIAL_HISTORY: "商业化历史",
+        Q_AUDIENCE_FIT: "受众匹配度",
+        Q_COMPOSITE_SCORE: "综合分数",
+        Q_AI_VERDICT: "AI判断",
+        Q_AI_REASONING: "评分理由",
+        Q_AVG_RECENT_VIEWS: "近期均播",
     }
     for col, title in headers.items():
         ws.cell(1, col).value = title
@@ -1808,7 +1988,8 @@ def make_subject_opening(channel: str, title: str, subs: int) -> tuple:
 
 def write_to_queue(ws, name, email, subj, opening, home_url, subs, found_email: bool,
                    source_keyword: str, market_score: int = 0, market_reason: str = "",
-                   video_url: str = "", tag: str = "", analysis: dict = None):
+                   video_url: str = "", tag: str = "", analysis: dict = None,
+                   channel_score: dict = None, avg_recent_views: int = 0):
     """写一行到发信名单"""
     sub_label = format_sub_label(subs)
     market_note = f" | 小博主信号{market_score}: {market_reason}" if market_reason else ""
@@ -1840,7 +2021,7 @@ def write_to_queue(ws, name, email, subj, opening, home_url, subs, found_email: 
     ws.cell(r, Q_SOURCE).value = source_keyword
     ws.cell(r, Q_TAG).value   = tag
 
-    # 写入 AI 分析结果
+    # 写入 AI 分析结果（旧版）
     if analysis:
         vertical_score = analysis.get("vertical_score", 0)
         ws.cell(r, Q_VERTICAL_SCORE).value = vertical_score if vertical_score > 0 else ""
@@ -1857,23 +2038,59 @@ def write_to_queue(ws, name, email, subj, opening, home_url, subs, found_email: 
         collab_type = analysis.get("collaboration_type", "")
         ws.cell(r, Q_COLLAB_TYPE).value = collab_type
 
-    for c in range(1, Q_COLLAB_TYPE + 1):
+    # 写入频道综合评分（新增）
+    if channel_score:
+        ws.cell(r, Q_CONTENT_RELEVANCE).value = channel_score.get("content_relevance", "")
+        ws.cell(r, Q_COMMERCIAL_HISTORY).value = channel_score.get("commercial_history", "")
+        ws.cell(r, Q_AUDIENCE_FIT).value = channel_score.get("audience_fit", "")
+        ws.cell(r, Q_COMPOSITE_SCORE).value = channel_score.get("composite_score", "")
+        ws.cell(r, Q_AI_VERDICT).value = channel_score.get("verdict", "")
+        ws.cell(r, Q_AI_REASONING).value = channel_score.get("reasoning", "")
+
+    # 写入近期均播
+    if avg_recent_views > 0:
+        ws.cell(r, Q_AVG_RECENT_VIEWS).value = avg_recent_views
+
+    for c in range(1, Q_AVG_RECENT_VIEWS + 1):
         ws.cell(r, c).fill = GREEN
     return r
 
 
 def append_found_email_to_queue(name, email, subj, opening, home_url, subs,
-                                source_keyword, market_score=0, market_reason="", video_url="", tag="", analysis=None):
+                                source_keyword, market_score=0, market_reason="", video_url="",
+                                tag="", analysis=None, channel_score=None, avg_recent_views=0):
     """重新读取最新主表后再追加，避免长时间搜索脚本用旧工作簿覆盖清理结果。"""
     wb = openpyxl.load_workbook(QUEUE_PATH)
     ws = wb.active
     ensure_queue_headers(ws)
     rownum = write_to_queue(
         ws, name, email, subj, opening, home_url, subs, True,
-        source_keyword, market_score, market_reason, video_url, tag=tag, analysis=analysis
+        source_keyword, market_score, market_reason, video_url, tag=tag, analysis=analysis,
+        channel_score=channel_score, avg_recent_views=avg_recent_views
     )
     wb.save(QUEUE_PATH)
     return rownum
+
+
+def calculate_composite_score(content_relevance: int, commercial_history: int,
+                               audience_fit: int, avg_views: int, max_avg_views: int = 1000000) -> float:
+    """
+    计算频道综合分数
+    max_avg_views: 用于归一化播放量的最大值（默认100万）
+    """
+    # 归一化播放量到0-100范围
+    normalized_views = min(100, (avg_views / max_avg_views) * 100) if max_avg_views > 0 else 0
+
+    # 应用权重计算综合分数
+    weights = CHANNEL_SCORE_WEIGHTS
+    composite = (
+        content_relevance * weights["content_relevance"] +
+        commercial_history * weights["commercial_history"] +
+        audience_fit * weights["audience_fit"] +
+        normalized_views * weights["avg_views_normalized"]
+    )
+
+    return round(composite, 2)
 
 
 def short_channel_name(name: str, limit: int = 28) -> str:
@@ -2331,17 +2548,46 @@ def main():
                 print("      ↳ 跳过：无邮箱候选里已存在")
                 continue
 
-            # Claude AI 完整分析（标签 + 深度分析）
-            _analysis = {}
+            # 频道综合评分（新增）
+            _channel_score = {}
             _ai_tag = ""
+            _analysis = {}
+            _avg_recent_views = recent_metrics.get("avg_views", 0) if MIN_RECENT_AVG_VIEWS > 0 else 0
+
             if ANTHROPIC_API_KEY:
                 _ai_titles = recent_metrics.get("titles", []) if MIN_RECENT_AVG_VIEWS > 0 else []
-                _bio = get_channel_bio(channel_id)
+                _bio = get_channel_bio(channel_id) if channel_id else ""
 
-                # 获取最近视频的评论
+                # 调用频道综合评分函数（替代旧的单视频判断逻辑）
+                _channel_score = call_claude_for_channel_scoring(
+                    channel_name=name,
+                    bio=_bio,
+                    titles=_ai_titles,
+                    subs=subs,
+                    hit_video_title=title,
+                    product_context="HitPaw VikPea 视频增强工具"
+                )
+
+                if _channel_score:
+                    # 计算综合分数
+                    composite_score = calculate_composite_score(
+                        content_relevance=_channel_score.get("content_relevance", 0),
+                        commercial_history=_channel_score.get("commercial_history", 0),
+                        audience_fit=_channel_score.get("audience_fit", 0),
+                        avg_views=_avg_recent_views,
+                        max_avg_views=1000000
+                    )
+                    _channel_score["composite_score"] = composite_score
+
+                    print(f"      ↳ AI频道评分: 内容相关{_channel_score.get('content_relevance', 0)} | "
+                          f"商业化{_channel_score.get('commercial_history', 0)} | "
+                          f"受众{_channel_score.get('audience_fit', 0)} | "
+                          f"综合{composite_score:.1f}")
+                    print(f"      ↳ AI判断: {_channel_score.get('verdict', '')} - {_channel_score.get('reasoning', '')}")
+
+                # 仍然保留旧版AI分析（用于兼容，提供额外标签信息）
                 _comments = []
                 if _ai_titles and recent_metrics.get("video_ids"):
-                    # 取最近一个视频的评论
                     recent_video_id = recent_metrics.get("video_ids", [])[0] if recent_metrics.get("video_ids") else None
                     if recent_video_id:
                         _comments = get_video_top_comments(recent_video_id, max_comments=10)
@@ -2349,12 +2595,8 @@ def main():
                 _analysis = call_claude_for_analysis(name, _bio, _ai_titles, _comments)
                 if _analysis:
                     _ai_tag = _analysis.get("tags", "")
-                    v_score = _analysis.get("vertical_score", 0)
-                    comp_status = "是" if _analysis.get("competitor_mentioned") else "否"
-                    collab = _analysis.get("collaboration_type", "")
                     if _ai_tag:
                         print(f"      ↳ 频道标签：{_ai_tag}")
-                    print(f"      ↳ AI分析: 垂直度{v_score}/10 | 推过竞品:{comp_status} | 建议:{collab}")
 
             # 生成主题/开头
             subj, opening = make_subject_opening(name, title, subs)
@@ -2374,7 +2616,8 @@ def main():
             if email and confidence == "A":
                 append_found_email_to_queue(
                     name, email, subj, opening, ch_url or vid_url, subs,
-                    keyword, market_score, market_reason, vid_url, tag=_ai_tag, analysis=_analysis
+                    keyword, market_score, market_reason, vid_url, tag=_ai_tag, analysis=_analysis,
+                    channel_score=_channel_score, avg_recent_views=_avg_recent_views
                 )
             elif email:
                 pending_result = ""
@@ -2402,7 +2645,8 @@ def main():
             else:
                 write_to_queue(
                     None, name, email, subj, opening, ch_url or vid_url, subs, False,
-                    keyword, market_score, market_reason, vid_url, tag=_ai_tag
+                    keyword, market_score, market_reason, vid_url, tag=_ai_tag,
+                    channel_score=_channel_score, avg_recent_views=_avg_recent_views
                 )
 
             existing_names.add(normalized_name)
@@ -2410,7 +2654,8 @@ def main():
                 existing_emails.add(email)
                 added_green += 1
                 keyword_green += 1
-                print(f"    ✅ {name:<28} ({format_sub_label(subs)}粉/S{market_score}) → {email} [{source}]")
+                composite_label = f"综合{_channel_score.get('composite_score', 0):.0f}" if _channel_score else ""
+                print(f"    ✅ {name:<28} ({format_sub_label(subs)}粉/S{market_score}/{composite_label}) → {email} [{source}]")
             elif email:
                 added_yellow += 1
                 keyword_yellow += 1

@@ -21,103 +21,13 @@ aside {
   color: white;
 }
 
-aside nav {
-  margin-top: 2rem;
-}
-
-aside nav button {
-  display: block;
-  width: 100%;
-  margin-bottom: 0.5rem;
-  padding: 0.75rem;
-  text-align: left;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  transition: all 0.2s;
-}
-
-aside nav button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: translateX(4px);
-}
-
-aside nav button.nav-active {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
-  font-weight: 600;
-}
-
 h1 {
   margin: 0 0 8px;
   font-size: 26px;
 }
 
-section, .page-container {
+section {
   padding: 32px;
-}
-
-.page-container h2 {
-  font-size: 2rem;
-  color: #1a202c;
-  margin-bottom: 0.5rem;
-}
-
-.page-container .text-gray-600 {
-  color: #718096;
-  font-size: 1rem;
-}
-
-.page-container .mb-4 {
-  margin-bottom: 1rem;
-}
-
-.page-container .mt-4 {
-  margin-top: 1rem;
-}
-
-.info-box {
-  background: white;
-  border: 1px solid #ddddda;
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin-top: 1.5rem;
-}
-
-.info-box h3 {
-  font-size: 1.25rem;
-  color: #2d3748;
-  margin: 0 0 1rem;
-}
-
-.info-box ul {
-  list-style: none;
-  padding: 0;
-}
-
-.info-box ul li {
-  padding: 0.5rem 0;
-  color: #4a5568;
-  font-size: 0.95rem;
-}
-
-.info-box a {
-  color: #3182ce;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.info-box a:hover {
-  text-decoration: underline;
-}
-
-.info-box p {
-  margin: 0;
-  color: #4a5568;
-  line-height: 1.6;
 }
 
 .toolbar {
@@ -158,8 +68,4 @@ pre {
   color: #d1fae5;
   padding: 16px;
   min-height: 220px;
-}
-
-.text-blue-500 {
-  color: #3182ce;
 }

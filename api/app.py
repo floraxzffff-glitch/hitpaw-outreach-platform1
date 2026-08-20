@@ -411,39 +411,6 @@ async def stop_youtube_search_job(job_id: str):
     return {"status": "stopping"}
 
 
-class YouTubeExpansionRequest(BaseModel):
-    """YouTube 关键词拓展请求"""
-    seed_keywords: List[str] = Field(..., description="种子关键词列表")
-    vph_threshold: int = Field(20, description="VPH阈值")
-    max_keywords: int = Field(50, description="最大关键词数")
-    depth: int = Field(1, description="DataForSEO拓展深度", ge=1, le=3)
-    skip_expansion: bool = Field(False, description="是否跳过关键词拓展")
-
-
-@app.post("/api/youtube/expansion/start", tags=["YouTube"])
-async def start_youtube_expansion(request: YouTubeExpansionRequest):
-    """
-    启动 YouTube 关键词拓展+视频搜索任务
-
-    使用 YouTube Data API v3 进行搜索，可选 DataForSEO 进行关键词拓展。
-    这是新的关键词拓展工具，使用 main.py。
-    """
-    try:
-        job_id = vikpea_bridge.start_youtube_expansion_job(
-            seed_keywords=request.seed_keywords,
-            vph_threshold=request.vph_threshold,
-            max_keywords=request.max_keywords,
-            depth=request.depth,
-            skip_expansion=request.skip_expansion
-        )
-        return {"job_id": job_id, "status": "running"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"启动YouTube关键词拓展失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/email-templates", tags=["EmailTemplates"])
 async def get_email_templates():
     """产品信息 + 开发信模板（主题/开头），读的是 VikPea_配置.xlsx。不含 SMTP 密码。"""
