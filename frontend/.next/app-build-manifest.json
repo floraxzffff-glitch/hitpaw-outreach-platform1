@@ -20,15 +20,7 @@
       "static/chunks/4bd1b696-c023c6e3521b1417.js",
       "static/chunks/255-87552e6e05b8e3aa.js",
       "static/chunks/main-app-136f40bd797dd41c.js",
-      "static/chunks/app/page-38d08aee820fc8b0.js"
-    ],
-    "/youtube/page": [
-      "static/chunks/webpack-74c939c87fa0092a.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-87552e6e05b8e3aa.js",
-      "static/chunks/main-app-136f40bd797dd41c.js",
-      "static/chunks/369-8d6ffd3d373b7044.js",
-      "static/chunks/app/youtube/page-d859005ef7228f58.js"
+      "static/chunks/app/page-1ea71180c61bcca6.js"
     ],
     "/settings/page": [
       "static/chunks/webpack-74c939c87fa0092a.js",
@@ -37,6 +29,14 @@
       "static/chunks/main-app-136f40bd797dd41c.js",
       "static/chunks/369-8d6ffd3d373b7044.js",
       "static/chunks/app/settings/page-14d1c8fe8ef12dae.js"
+    ],
+    "/youtube/page": [
+      "static/chunks/webpack-74c939c87fa0092a.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-87552e6e05b8e3aa.js",
+      "static/chunks/main-app-136f40bd797dd41c.js",
+      "static/chunks/369-8d6ffd3d373b7044.js",
+      "static/chunks/app/youtube/page-d859005ef7228f58.js"
     ]
   }
 }

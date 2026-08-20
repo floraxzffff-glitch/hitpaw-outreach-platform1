@@ -41,7 +41,7 @@ export default function Home() {
 
   return (
     <div className="p-8">
-      <h1 className="text-3xl font-bold mb-6">HitPaw Outreach 工作台</h1>
+      <h1 className="text-2xl font-bold mb-6 text-gray-800">系统检查</h1>
 
       <div className="space-y-6">
         <div className="bg-white rounded-lg shadow p-6">
