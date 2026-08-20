@@ -15,6 +15,10 @@ RUN npm install --production=false
 # 复制前端源码（所有文件，包括 app/ 目录）
 COPY frontend/ ./
 
+# 接收构建时的 API URL 参数
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # 构建 Next.js 应用
 RUN npm run build
 

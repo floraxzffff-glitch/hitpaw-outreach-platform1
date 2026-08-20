@@ -18,7 +18,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制 API 代码
 COPY api/ /app/api/
-COPY 01_请在这个文件夹里操作/ /app/01_请在这个文件夹里操作/
+COPY 01_请在这个文件夹里操作/ /app/workspace/
+
+# 设置 Python 模块搜索路径
+ENV PYTHONPATH=/app:/app/workspace:$PYTHONPATH
+ENV WORKSPACE_DIR=/app/workspace
 
 # 设置工作目录为 api
 WORKDIR /app/api
