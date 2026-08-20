@@ -17,8 +17,8 @@ services:
       - CELERY_BROKER_URL=redis://cache:6379/1
       - CELERY_RESULT_BACKEND=redis://cache:6379/2
       - WORKSPACE_DIR=/app/workspace
-      - ANTHROPIC_API_KEY=sk-z9eLFkhscLshisOeJbhuc2smkUi9iN0pPULclcwlwRpDlufj
-      - ANTHROPIC_API_BASE=https://api.vectorengine.ai/v1
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_BASE=${ANTHROPIC_API_BASE:-https://api.vectorengine.ai/v1}
     depends_on:
       - db
       - cache
@@ -27,6 +27,7 @@ services:
       - ./uploads:/app/uploads
       - ./data:/app/data
       - ./workspace:/app/workspace
+      - ./01_请在这个文件夹里操作:/app/workspace/01_请在这个文件夹里操作:ro
     networks:
       - vikpea-network
     restart: unless-stopped
