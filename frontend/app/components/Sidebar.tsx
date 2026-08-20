@@ -37,16 +37,6 @@ export function Sidebar() {
           🎥 YouTube KOL 搜索
         </Link>
         <Link
-          href="/youtube-expansion"
-          className={`block px-4 py-2.5 rounded-lg transition-colors ${
-            isActive('/youtube-expansion')
-              ? 'bg-blue-500 text-white'
-              : 'text-gray-300 hover:bg-slate-800 hover:text-white'
-          }`}
-        >
-          🎯 YouTube 关键词拓展
-        </Link>
-        <Link
           href="/settings"
           className={`block px-4 py-2.5 rounded-lg transition-colors ${
             isActive('/settings')

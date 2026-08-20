@@ -17,6 +17,8 @@ from dataforseo_client import DataForSEOClient, test_dataforseo_connection
 import filter_config
 import contact_threshold_config
 import contacted_history_api
+import keyword_expansion
+from ai_relevance_filter import filter_candidate_videos
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -345,6 +347,47 @@ async def delete_youtube_keyword(keyword: str):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"删除关键词失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class KeywordExpansionRequest(BaseModel):
+    seed_keyword: str = Field(..., description="种子关键词")
+    use_autocomplete: bool = Field(True, description="是否使用YouTube自动补全")
+    use_related: bool = Field(False, description="是否使用DataForSEO related_keywords")
+    use_ideas: bool = Field(False, description="是否使用DataForSEO keyword_ideas")
+    max_results: int = Field(100, description="拓展时最多返回多少个关键词", ge=10, le=200)
+    enable_ai_filter: bool = Field(True, description="是否启用AI相关度筛选")
+
+
+@app.post("/api/youtube/keywords/expand", tags=["YouTube"])
+async def expand_youtube_keywords(payload: KeywordExpansionRequest):
+    """
+    关键词拓展（内嵌到主搜索流程中）
+
+    从种子关键词拓展出相关关键词：
+    1. YouTube自动补全
+    2. DataForSEO related_keywords（可选）
+    3. DataForSEO keyword_ideas（可选）
+
+    然后通过AI相关度筛选（使用Claude API）过滤掉不相关的关键词
+
+    返回：
+    - expanded_keywords: 拓展出的所有关键词
+    - relevant_keywords: AI判断为相关的关键词（用于后续搜索）
+    - ai_details: AI判断详情（每个关键词的相关性、理由、置信度）
+    """
+    try:
+        result = keyword_expansion.expand_keywords_with_ai_filter(
+            seed_keyword=payload.seed_keyword,
+            use_autocomplete=payload.use_autocomplete,
+            use_related=payload.use_related,
+            use_ideas=payload.use_ideas,
+            max_results=payload.max_results,
+            enable_ai_filter=payload.enable_ai_filter
+        )
+        return result
+    except Exception as e:
+        logger.error(f"关键词拓展失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

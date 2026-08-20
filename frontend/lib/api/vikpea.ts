@@ -93,6 +93,39 @@ export interface YoutubeSearchJob {
   stoppable?: boolean;
 }
 
+export interface KeywordExpansionRequest {
+  seed_keyword: string;
+  use_autocomplete?: boolean;
+  use_related?: boolean;
+  use_ideas?: boolean;
+  max_results?: number;
+  enable_ai_filter?: boolean;
+}
+
+export interface KeywordAIDetail {
+  keyword: string;
+  relevant: boolean;
+  reason: string;
+  confidence: 'high' | 'medium' | 'low' | 'unknown';
+  ai_status: 'success' | 'failed' | 'skipped' | 'partial';
+}
+
+export interface KeywordExpansionResponse {
+  seed_keyword: string;
+  expanded_keywords: string[];
+  relevant_keywords: string[];
+  ai_details: KeywordAIDetail[];
+  stats: {
+    total: number;
+    autocomplete: number;
+    related: number;
+    ideas: number;
+    relevant_count: number;
+    filtered_count: number;
+  };
+  ai_enabled: boolean;
+}
+
 export interface EmailTemplateSettings {
   PRODUCT_NAME: string;
   PRODUCT_TEAM: string;
@@ -373,6 +406,11 @@ class VikPeaAPI {
     const response = await this.axiosInstance.delete(
       `/api/youtube/keywords/${encodeURIComponent(keyword)}`
     );
+    return response.data;
+  }
+
+  async expandYoutubeKeywords(request: KeywordExpansionRequest): Promise<KeywordExpansionResponse> {
+    const response = await this.axiosInstance.post('/api/youtube/keywords/expand', request);
     return response.data;
   }
 

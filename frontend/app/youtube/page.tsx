@@ -45,6 +45,13 @@ export default function YoutubePage() {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [bulkText, setBulkText] = useState('');
 
+  // 关键词拓展
+  const [showExpansion, setShowExpansion] = useState(false);
+  const [isExpanding, setIsExpanding] = useState(false);
+  const [expandedKeywords, setExpandedKeywords] = useState<string[]>([]);
+  const [selectedExpanded, setSelectedExpanded] = useState<Set<string>>(new Set());
+  const [expansionDetails, setExpansionDetails] = useState<any>(null);
+
   // 筛选参数
   const [settings, setSettings] = useState<YoutubeSearchSettings | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<Record<string, string>>({});
@@ -293,6 +300,80 @@ export default function YoutubePage() {
     }
   };
 
+  // 关键词拓展处理函数
+  const handleExpandKeyword = async () => {
+    const trimmed = newKeyword.trim();
+    if (!trimmed) {
+      setError('请先输入种子关键词');
+      return;
+    }
+
+    try {
+      setIsExpanding(true);
+      setError(null);
+      setShowExpansion(true);
+
+      const result = await vikpeaAPI.expandYoutubeKeywords({
+        seed_keyword: trimmed,
+        use_autocomplete: true,
+        use_related: false,
+        use_ideas: false,
+        max_results: 100,
+        enable_ai_filter: true,
+      });
+
+      setExpandedKeywords(result.relevant_keywords);
+      setSelectedExpanded(new Set(result.relevant_keywords)); // 默认全选AI判断为相关的
+      setExpansionDetails(result);
+      setSuccess(`已拓展出 ${result.stats.total} 个关键词，AI筛选后保留 ${result.stats.relevant_count} 个相关词`);
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err: any) {
+      setError(err.message || '关键词拓展失败');
+      setShowExpansion(false);
+    } finally {
+      setIsExpanding(false);
+    }
+  };
+
+  const handleToggleExpandedKeyword = (keyword: string) => {
+    const newSelected = new Set(selectedExpanded);
+    if (newSelected.has(keyword)) {
+      newSelected.delete(keyword);
+    } else {
+      newSelected.add(keyword);
+    }
+    setSelectedExpanded(newSelected);
+  };
+
+  const handleConfirmExpanded = async () => {
+    const selected = Array.from(selectedExpanded);
+    if (selected.length === 0) {
+      setError('请至少选择一个关键词');
+      return;
+    }
+
+    try {
+      setError(null);
+      await addKeywordsBatch(selected);
+      setShowExpansion(false);
+      setExpandedKeywords([]);
+      setSelectedExpanded(new Set());
+      setExpansionDetails(null);
+      setNewKeyword('');
+      setSuccess(`已添加 ${selected.length} 个拓展关键词到搜索列表`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || '添加关键词失败');
+    }
+  };
+
+  const handleCancelExpansion = () => {
+    setShowExpansion(false);
+    setExpandedKeywords([]);
+    setSelectedExpanded(new Set());
+    setExpansionDetails(null);
+  };
+
   const pollJob = (jobId: string) => {
     if (pollTimer.current) clearInterval(pollTimer.current);
     pollTimer.current = setInterval(async () => {
@@ -490,24 +571,100 @@ export default function YoutubePage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex gap-2 mb-4">
-                  <input
-                    type="text"
-                    value={newKeyword}
-                    onChange={(e) => setNewKeyword(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddKeyword()}
-                    onPaste={handleKeywordPaste}
-                    placeholder="新关键词，回车或点添加"
-                    disabled={isRunning}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                  />
-                  <button
-                    onClick={handleAddKeyword}
-                    disabled={isRunning}
-                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
-                  >
-                    添加并启用
-                  </button>
+                <div className="mb-4">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newKeyword}
+                      onChange={(e) => setNewKeyword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddKeyword()}
+                      onPaste={handleKeywordPaste}
+                      placeholder="输入种子关键词，可以拓展或直接添加"
+                      disabled={isRunning || isExpanding}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    />
+                    <button
+                      onClick={handleExpandKeyword}
+                      disabled={isRunning || isExpanding || !newKeyword.trim()}
+                      className="px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      {isExpanding ? '拓展中...' : '🎯 智能拓展'}
+                    </button>
+                    <button
+                      onClick={handleAddKeyword}
+                      disabled={isRunning || isExpanding}
+                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      直接添加
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 点击「智能拓展」自动从YouTube补全+AI筛选获取相关关键词，或直接添加
+                  </p>
+
+                  {/* 拓展结果展示 */}
+                  {showExpansion && expandedKeywords.length > 0 && (
+                    <div className="mt-4 p-4 border-2 border-purple-200 bg-purple-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-sm font-bold text-gray-900">
+                            已为「{expansionDetails?.seed_keyword}」拓展出 {expandedKeywords.length} 个相关关键词
+                          </h3>
+                          <p className="text-xs text-gray-600 mt-1">
+                            {expansionDetails?.ai_enabled
+                              ? `AI筛选：${expansionDetails.stats.total} 个候选 → ${expansionDetails.stats.relevant_count} 个相关`
+                              : '取消勾选不需要的，点击确认添加到搜索列表'}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleCancelExpansion}
+                            className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 font-medium"
+                          >
+                            取消
+                          </button>
+                          <button
+                            onClick={handleConfirmExpanded}
+                            disabled={selectedExpanded.size === 0}
+                            className="px-4 py-1.5 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
+                          >
+                            确认添加 ({selectedExpanded.size})
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                        {expandedKeywords.map((kw) => {
+                          const detail = expansionDetails?.ai_details?.find((d: any) => d.keyword === kw);
+                          return (
+                            <label
+                              key={kw}
+                              className={`flex items-start gap-2 p-2 rounded border cursor-pointer transition ${
+                                selectedExpanded.has(kw)
+                                  ? 'bg-purple-100 border-purple-300'
+                                  : 'bg-white border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedExpanded.has(kw)}
+                                onChange={() => handleToggleExpandedKeyword(kw)}
+                                className="mt-0.5 w-4 h-4 text-purple-500 rounded focus:ring-2 focus:ring-purple-500"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-gray-900 break-words">{kw}</p>
+                                {detail && detail.reason && (
+                                  <p className="text-xs text-gray-500 mt-0.5" title={detail.reason}>
+                                    {detail.confidence === 'high' ? '✓' : detail.confidence === 'medium' ? '?' : '⚠'}
+                                    {detail.reason.length > 30 ? detail.reason.substring(0, 30) + '...' : detail.reason}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

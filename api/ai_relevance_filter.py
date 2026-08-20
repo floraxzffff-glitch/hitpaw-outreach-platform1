@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 # 从环境变量或配置文件读取
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_BASE = os.environ.get("ANTHROPIC_API_BASE", "https://api.vectorengine.ai/v1")
 ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
 MAX_RETRIES = 3
 BATCH_SIZE_KEYWORDS = 50  # 每次批量判断的关键词数量
@@ -35,16 +36,20 @@ BATCH_SIZE_VIDEOS = 20    # 每次批量判断的视频数量
 class AIRelevanceFilter:
     """AI相关度筛选器"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, api_base: Optional[str] = None):
         """初始化AI筛选器"""
         self.api_key = api_key or ANTHROPIC_API_KEY
+        self.api_base = api_base or ANTHROPIC_API_BASE
         if not self.api_key:
             logger.warning("未配置 ANTHROPIC_API_KEY，AI相关度筛选将被跳过")
             self.client = None
         else:
             if anthropic is None:
                 raise ImportError("需要安装 anthropic: pip install anthropic")
-            self.client = anthropic.Anthropic(api_key=self.api_key)
+            self.client = anthropic.Anthropic(
+                api_key=self.api_key,
+                base_url=self.api_base
+            )
 
     def is_available(self) -> bool:
         """检查AI筛选是否可用"""
