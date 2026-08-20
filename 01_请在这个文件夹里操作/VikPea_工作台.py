@@ -18,7 +18,6 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MENU = [
     ("1", "交付前自检 / 今日状态", "VikPea_交付前自检.py"),
     ("2", "搜索 YouTube KOL", "VikPea_YouTube批量搜索.py"),
-    ("2b", "YouTube关键词拓展+搜索", "main.py"),
     ("3", "搜索文章站点", "VikPea_文章批量搜索.py"),
     ("4", "深度找邮箱", "VikPea_深度找邮箱.py"),
     ("5", "邮箱体检", "VikPea_邮箱体检.py"),
