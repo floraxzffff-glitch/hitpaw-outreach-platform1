@@ -21,6 +21,7 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+.next/
 
 # Temporary files
 *.tmp
