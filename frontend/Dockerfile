@@ -6,7 +6,7 @@ WORKDIR /app
 
 # 安装依赖
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm cache clean --force && npm ci --prefer-offline --no-audit
 
 # 复制源代码
 COPY frontend/ .
@@ -23,7 +23,7 @@ ENV NODE_ENV=production
 
 # 安装 next-runtime
 COPY frontend/package*.json ./
-RUN npm ci --only=production
+RUN npm cache clean --force && npm ci --prefer-offline --no-audit --only=production
 
 # 复制构建结果
 COPY --from=builder /app/.next ./.next
