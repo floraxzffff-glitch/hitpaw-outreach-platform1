@@ -4,6 +4,10 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# 接收构建参数
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # 复制 package 文件
 COPY frontend/package*.json ./
 
@@ -15,7 +19,7 @@ RUN npm cache clean --force && \
 # 复制源代码
 COPY frontend/ .
 
-# 构建应用
+# 构建应用（此时 NEXT_PUBLIC_API_URL 会被写死进 JS 文件）
 RUN npm run build
 
 # ======================== 生产镜像 ========================

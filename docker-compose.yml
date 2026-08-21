@@ -74,6 +74,10 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        # NEXT_PUBLIC_* 变量在 next build 时被写死进 JS 产物，
+        # 必须作为构建参数传入，运行时改环境变量无效
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: vikpea-frontend
     ports:
       - "3000:3000"
