@@ -4,9 +4,13 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# 安装依赖
+# 复制 package 文件
 COPY frontend/package*.json ./
-RUN npm cache clean --force && npm ci --prefer-offline --no-audit
+
+# 清除缓存并显式安装正确版本
+RUN npm cache clean --force && \
+    npm install next@14.2.33 react@18 react-dom@18 && \
+    npm ci
 
 # 复制源代码
 COPY frontend/ .
@@ -21,9 +25,13 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# 安装 next-runtime
+# 复制 package 文件
 COPY frontend/package*.json ./
-RUN npm cache clean --force && npm ci --prefer-offline --no-audit --only=production
+
+# 清除缓存并显式安装正确版本
+RUN npm cache clean --force && \
+    npm install next@14.2.33 react@18 react-dom@18 --only=production && \
+    npm ci --only=production
 
 # 复制构建结果
 COPY --from=builder /app/.next ./.next
