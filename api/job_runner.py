@@ -24,6 +24,7 @@ class Job:
         self.finished_at: Optional[datetime] = None
         self.result: Any = None
         self.error: Optional[str] = None
+        self.log: List[str] = []
         self.thread: Optional[threading.Thread] = None
         self.process: Optional[subprocess.Popen] = None
 
@@ -99,20 +100,27 @@ def start_subprocess_job(resource: str, cmd: List[str], label: str = "", cwd: st
                 cmd,
                 cwd=cwd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
             )
             job.process = process
-            stdout, stderr = process.communicate()
+
+            for line in process.stdout:
+                with _jobs_lock:
+                    job.log.append(line.rstrip("\n"))
+
+            process.wait()
 
             with _jobs_lock:
+                output = "\n".join(job.log)
                 if process.returncode == 0:
                     job.status = "completed"
-                    job.result = {"stdout": stdout, "stderr": stderr, "returncode": 0}
+                    job.result = {"stdout": output, "returncode": 0}
                 else:
                     job.status = "failed"
-                    job.error = f"进程退出码 {process.returncode}: {stderr}"
-                    job.result = {"stdout": stdout, "stderr": stderr, "returncode": process.returncode}
+                    job.error = f"进程退出码 {process.returncode}"
+                    job.result = {"stdout": output, "returncode": process.returncode}
                 job.finished_at = datetime.now()
         except Exception as e:
             with _jobs_lock:
@@ -185,6 +193,7 @@ def get_job(job_id: str) -> Optional[Dict]:
             "finished_at": job.finished_at.isoformat() if job.finished_at else None,
             "result": job.result,
             "error": job.error,
+            "log": job.log,
         }
 
 
@@ -211,6 +220,7 @@ def list_jobs(resource: Optional[str] = None) -> List[Dict]:
                 "status": job.status,
                 "created_at": job.created_at.isoformat(),
                 "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                "log": job.log,
             }
             for job in jobs
         ]

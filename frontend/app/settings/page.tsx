@@ -75,7 +75,7 @@ export default function SettingsPage() {
       );
       if (thresholdResponse.ok) {
         const thresholdData = await thresholdResponse.json();
-        setContactThreshold(thresholdData.threshold_days);
+        setContactThreshold(thresholdData.followup1_after_days);
       }
     } catch (err: any) {
       setError(err.message || '加载设置失败');

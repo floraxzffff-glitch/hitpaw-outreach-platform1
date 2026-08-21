@@ -200,7 +200,7 @@ export default function YoutubePage() {
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [job?.log.length]);
+  }, [job?.log?.length]);
 
   const handleSaveSettings = async () => {
     try {
@@ -505,10 +505,10 @@ export default function YoutubePage() {
                   </span>
                 </div>
                 <div className="bg-gray-900 text-gray-100 font-mono text-xs rounded-lg p-4 max-h-64 overflow-y-auto">
-                  {job.log.length === 0 ? (
+                  {(job.log ?? []).length === 0 ? (
                     <p className="text-gray-500">等待脚本输出...</p>
                   ) : (
-                    job.log.map((line, i) => <div key={i}>{line}</div>)
+                    (job.log ?? []).map((line, i) => <div key={i}>{line}</div>)
                   )}
                   <div ref={logEndRef} />
                 </div>
