@@ -14,7 +14,8 @@ COPY api/requirements.txt .
 # 创建虚拟环境并安装依赖
 RUN python -m venv /app/venv && \
     /app/venv/bin/pip install --upgrade pip && \
-    /app/venv/bin/pip install -r requirements.txt
+    /app/venv/bin/pip install -r requirements.txt && \
+    /app/venv/bin/pip install yt-dlp
 
 # ======================== 运行阶段 ========================
 FROM python:3.10-slim
