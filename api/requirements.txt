@@ -18,3 +18,6 @@ httpx>=0.27
 
 # 环境变量
 python-dotenv>=1.0
+
+# YouTube 实际抓取（VikPea_YouTube批量搜索.py 依赖）
+yt-dlp>=2024.1.1
