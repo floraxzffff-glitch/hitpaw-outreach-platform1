@@ -10,7 +10,7 @@ RUN npm config set registry https://registry.npmmirror.com
 COPY frontend/package*.json ./
 
 # 安装依赖
-RUN npm install --production=false
+RUN npm ci
 
 # 复制前端源码（所有文件，包括 app/ 目录）
 COPY frontend/ ./
