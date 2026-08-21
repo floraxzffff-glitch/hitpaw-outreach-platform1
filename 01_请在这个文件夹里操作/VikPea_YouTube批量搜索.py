@@ -92,7 +92,7 @@ SEMRUSH_CANDIDATES = [
 
 SUB_MIN     = 1_000      # 最少粉丝数；小博主模式放低门槛
 SUB_MAX     = 250_000    # 最多粉丝数；优先更好谈的小中型频道
-SEARCH_N    = 80         # 每个关键词取多少视频结果
+SEARCH_N    = 150        # 每个关键词取多少视频结果（扩大候选池：捕获关键词在简介/tag里的视频）
 DELAY_SEARCH = 3         # 两次搜索间隔（秒）
 DELAY_FETCH  = 2         # 两次频道描述抓取间隔（秒）
 MIN_VIDEO_VIEWS = 800
