@@ -5,3 +5,4 @@ openpyxl==3.1.5
 pydantic==2.11.7
 requests==2.32.4
 beautifulsoup4==4.13.4
+yt-dlp

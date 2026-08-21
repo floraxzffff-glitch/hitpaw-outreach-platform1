@@ -2324,7 +2324,7 @@ def main():
     # 检查 yt-dlp
     if not YTDLP_CMD:
         print("❌ 未找到 yt-dlp，请运行:")
-        print("   /Library/Developer/CommandLineTools/usr/bin/python3 -m pip install yt-dlp")
+        print(f"   {sys.executable} -m pip install yt-dlp")
         sys.exit(1)
     print(f"  ✅ yt-dlp 路径: {' '.join(YTDLP_CMD)}")
 
