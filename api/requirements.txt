@@ -21,3 +21,6 @@ python-dotenv>=1.0
 
 # YouTube 实际抓取（VikPea_YouTube批量搜索.py 依赖）
 yt-dlp>=2024.1.1
+
+# AI KOL 适配度判断
+anthropic>=0.18.0
