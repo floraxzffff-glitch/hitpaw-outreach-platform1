@@ -49,7 +49,15 @@ class AIKOLScorer:
         if not self.api_key:
             raise ValueError("未设置 ANTHROPIC_API_KEY")
 
-        self.client = Anthropic(api_key=self.api_key)
+        # 支持自定义API base URL
+        api_base = os.getenv("ANTHROPIC_API_BASE")
+        if api_base:
+            # 如果base_url以/v1结尾，去掉它（anthropic库会自动添加）
+            if api_base.endswith('/v1'):
+                api_base = api_base[:-3]
+            self.client = Anthropic(api_key=self.api_key, base_url=api_base)
+        else:
+            self.client = Anthropic(api_key=self.api_key)
         self.model = model
 
     def score_kol_fit(
@@ -137,7 +145,7 @@ class AIKOLScorer:
 **频道信息**:
 - 频道名: {channel_name}
 - 订阅数: {subscriber_count:,}
-- 频道简介: {channel_description[:300]}{"..." if len(channel_description) > 300 else ""}
+- 频道简介: {channel_description[:1000]}{"..." if len(channel_description) > 1000 else ""}
 
 **最近视频**:
 {videos_text}
@@ -164,7 +172,6 @@ class AIKOLScorer:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=800,
-            temperature=0,
             messages=[{"role": "user", "content": prompt}]
         )
 

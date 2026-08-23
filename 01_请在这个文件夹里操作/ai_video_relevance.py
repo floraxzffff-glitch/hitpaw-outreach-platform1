@@ -76,7 +76,15 @@ class AIVideoRelevanceJudge:
         if not self.api_key:
             raise ValueError("未设置 ANTHROPIC_API_KEY")
 
-        self.client = Anthropic(api_key=self.api_key)
+        # 支持自定义API base URL
+        api_base = os.getenv("ANTHROPIC_API_BASE")
+        if api_base:
+            # 如果base_url以/v1结尾，去掉它（anthropic库会自动添加）
+            if api_base.endswith('/v1'):
+                api_base = api_base[:-3]
+            self.client = Anthropic(api_key=self.api_key, base_url=api_base)
+        else:
+            self.client = Anthropic(api_key=self.api_key)
         self.model = model
 
     def judge_video_relevance(
@@ -182,7 +190,7 @@ class AIVideoRelevanceJudge:
 
 **视频信息**:
 - 标题: {video_title}
-- 简介: {video_description[:500]}{"..." if len(video_description) > 500 else ""}
+- 简介: {video_description[:2000]}{"..." if len(video_description) > 2000 else ""}
 - 标签: {", ".join(video_tags[:20])}
 
 **关键词出现位置**: {", ".join(matched_fields)}
@@ -201,7 +209,6 @@ class AIVideoRelevanceJudge:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=500,
-            temperature=0,
             messages=[{"role": "user", "content": prompt}]
         )
 
