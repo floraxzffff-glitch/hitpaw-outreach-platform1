@@ -73,6 +73,57 @@ def find_ytdlp() -> list:
 YTDLP_CMD = find_ytdlp()
 
 
+def generate_keyword_variants(keyword: str) -> List[str]:
+    """
+    生成关键词的2-3个变体
+
+    规则：
+    - 移除/添加常见修饰词（best, top, free）
+    - 单数/复数转换
+    - 同义词替换（software -> tool, app）
+
+    Returns:
+        [原关键词, 变体1, 变体2, ...]
+    """
+    variants = [keyword]  # 原关键词始终保留
+
+    keyword_lower = keyword.lower()
+
+    # 规则1: 如果包含"software"，生成"tool"/"app"变体
+    if "software" in keyword_lower:
+        variants.append(keyword_lower.replace("software", "tool"))
+        variants.append(keyword_lower.replace("software", "app"))
+    elif "tool" in keyword_lower:
+        variants.append(keyword_lower.replace("tool", "software"))
+    elif "app" in keyword_lower:
+        variants.append(keyword_lower.replace("app", "software"))
+
+    # 规则2: 移除/添加常见修饰词
+    modifiers = ["best", "top", "free", "good"]
+    for modifier in modifiers:
+        if modifier in keyword_lower:
+            # 移除修饰词
+            clean = keyword_lower.replace(modifier, "").strip()
+            if clean and clean not in variants:
+                variants.append(clean)
+        else:
+            # 添加修饰词（只添加一个，避免过多变体）
+            if len(variants) < 4:
+                variants.append(f"{modifier} {keyword_lower}")
+                break
+
+    # 去重并限制在4个以内（原词 + 3个变体）
+    seen = set()
+    unique_variants = []
+    for v in variants:
+        v_normalized = v.strip().lower()
+        if v_normalized and v_normalized not in seen:
+            seen.add(v_normalized)
+            unique_variants.append(v.strip())
+
+    return unique_variants[:4]
+
+
 def fetch_video_metadata(video_url: str) -> Dict:
     """
     获取视频的完整元数据（标题+简介+tags）
@@ -236,7 +287,7 @@ def export_results_to_excel(results: List[Dict], output_path: str):
 
     # 表头
     headers = [
-        "频道名", "频道URL", "视频URL", "关键词", "订阅数",
+        "频道名", "频道URL", "视频URL", "搜索关键词", "来源关键词/变体", "订阅数",
         "适配度评分", "推荐度", "评分理由", "建议合作角度",
         "视频相关性", "相关性理由"
     ]
@@ -285,13 +336,14 @@ def export_results_to_excel(results: List[Dict], output_path: str):
         ws.cell(row_idx, 2, result.get("channel_url", ""))
         ws.cell(row_idx, 3, result.get("video_url", ""))
         ws.cell(row_idx, 4, result.get("keyword", ""))
-        ws.cell(row_idx, 5, result.get("subscriber_count", 0))
-        ws.cell(row_idx, 6, result.get("fit_score", 0))
-        ws.cell(row_idx, 7, result.get("fit_verdict", ""))
-        ws.cell(row_idx, 8, result.get("fit_reason", ""))
-        ws.cell(row_idx, 9, result.get("suggested_angle", ""))
-        ws.cell(row_idx, 10, result.get("relevance_verdict", ""))
-        ws.cell(row_idx, 11, result.get("relevance_reason", ""))
+        ws.cell(row_idx, 5, result.get("found_by_keyword", result.get("keyword", "")))
+        ws.cell(row_idx, 6, result.get("subscriber_count", 0))
+        ws.cell(row_idx, 7, result.get("fit_score", 0))
+        ws.cell(row_idx, 8, result.get("fit_verdict", ""))
+        ws.cell(row_idx, 9, result.get("fit_reason", ""))
+        ws.cell(row_idx, 10, result.get("suggested_angle", ""))
+        ws.cell(row_idx, 11, result.get("relevance_verdict", ""))
+        ws.cell(row_idx, 12, result.get("relevance_reason", ""))
 
         # 给整行上色
         for col_idx in range(1, len(headers) + 1):
@@ -343,20 +395,54 @@ def main():
         sys.exit(1)
 
     # 1. 读取搜索结果
-    print("\n[1/4] 读取搜索结果...")
+    print("\n[1/5] 读取搜索结果...")
     search_results = load_search_results()
 
     if not search_results:
         print("❌ 没有搜索结果可处理")
         sys.exit(1)
 
+    # 1.5 关键词变体扩展
+    print(f"\n[2/5] 关键词变体扩展...")
+
+    # 收集所有唯一关键词
+    unique_keywords = list(set(r["keyword"] for r in search_results))
+    print(f"   原始关键词数: {len(unique_keywords)}")
+
+    # 为每个关键词生成变体
+    keyword_variants_map = {}
+    all_search_queries = []
+
+    for keyword in unique_keywords:
+        variants = generate_keyword_variants(keyword)
+        keyword_variants_map[keyword] = variants
+        print(f"   '{keyword}' -> {len(variants)} 个查询: {variants}")
+        all_search_queries.extend([(keyword, variant) for variant in variants])
+
+    print(f"   总搜索查询数（含变体）: {len(all_search_queries)}")
+    print(f"   ⚠️  注意：当前测试从VikPea_发信名单.xlsx读取，未实际执行YouTube搜索")
+    print(f"   ⚠️  实际使用时，需要对每个变体调用YouTube Data API搜索")
+
+    # 按video_url去重合并（同一个视频可能通过多个变体找到）
+    video_dedup_map = {}
+    for result in search_results:
+        video_url = result["video_url"]
+        if video_url not in video_dedup_map:
+            video_dedup_map[video_url] = result
+            # 记录该视频是通过哪个关键词找到的（第一次出现的关键词）
+            video_dedup_map[video_url]["found_by_keyword"] = result["keyword"]
+        # 如果同一个视频通过多个关键词找到，可以在这里记录（暂不实现）
+
+    deduplicated_results = list(video_dedup_map.values())
+    print(f"   去重后视频数: {len(deduplicated_results)} 个（原始: {len(search_results)} 个）")
+
     # 2. 阶段1：视频相关性初筛
-    print(f"\n[2/4] 阶段1：AI视频相关性初筛（扩大候选池）...")
-    print(f"   处理 {len(search_results)} 个视频...")
+    print(f"\n[3/5] 阶段1：AI视频相关性初筛（扩大候选池）...")
+    print(f"   处理 {len(deduplicated_results)} 个视频...")
 
     enriched_videos = []
-    for idx, result in enumerate(search_results, 1):
-        print(f"   [{idx}/{len(search_results)}] 获取视频元数据: {result['channel_name']}")
+    for idx, result in enumerate(deduplicated_results, 1):
+        print(f"   [{idx}/{len(deduplicated_results)}] 获取视频元数据: {result['channel_name']}")
 
         video_meta = fetch_video_metadata(result["video_url"])
 
@@ -364,7 +450,8 @@ def main():
             **result,
             "video_title": video_meta["title"] or result.get("channel_name", ""),
             "video_description": video_meta["description"],
-            "video_tags": video_meta["tags"]
+            "video_tags": video_meta["tags"],
+            "found_by_keyword": result.get("found_by_keyword", result["keyword"])  # 记录来源关键词
         })
 
     # 批量AI判断相关性
@@ -411,22 +498,39 @@ def main():
     print(f"      不相关: {len([v for v in enriched_videos if v['relevance_verdict'] == RelevanceVerdict.IRRELEVANT.value])} 个")
     print(f"      待确认: {len([v for v in enriched_videos if v['relevance_verdict'] == RelevanceVerdict.UNCERTAIN.value])} 个")
 
-    # 3. 阶段2：KOL适配度判断
-    print(f"\n[3/4] 阶段2：AI KOL适配度判断...")
-    print(f"   处理 {len(relevant_videos)} 个相关频道...")
+    # 3. 阶段2：KOL适配度判断（按频道聚合）
+    print(f"\n[4/5] 阶段2：AI KOL适配度判断（按频道聚合）...")
 
+    # 按频道URL聚合相关视频
+    channel_videos_map = {}
+    for video in relevant_videos:
+        channel_url = video["channel_url"]
+        if channel_url not in channel_videos_map:
+            channel_videos_map[channel_url] = {
+                "channel_name": video["channel_name"],
+                "channel_url": channel_url,
+                "subscriber_count": video["subscriber_count"],
+                "videos": []
+            }
+        channel_videos_map[channel_url]["videos"].append(video)
+
+    print(f"   聚合后频道数: {len(channel_videos_map)} 个")
+    print(f"   （原始相关视频: {len(relevant_videos)} 个）")
+
+    # 为每个频道获取完整信息
     channels_for_scoring = []
-    for idx, video in enumerate(relevant_videos, 1):
-        print(f"   [{idx}/{len(relevant_videos)}] 获取频道信息: {video['channel_name']}")
+    for idx, (channel_url, channel_data) in enumerate(channel_videos_map.items(), 1):
+        print(f"   [{idx}/{len(channel_videos_map)}] 获取频道信息: {channel_data['channel_name']}")
 
-        channel_info = fetch_channel_info(video["channel_url"])
+        channel_info = fetch_channel_info(channel_url)
 
         channels_for_scoring.append({
-            "channel_name": video["channel_name"],
-            "channel_url": video["channel_url"],
+            "channel_name": channel_data["channel_name"],
+            "channel_url": channel_url,
             "channel_description": channel_info["channel_description"],
             "recent_videos": channel_info["recent_videos"],
-            "subscriber_count": video["subscriber_count"]
+            "subscriber_count": channel_data["subscriber_count"],
+            "related_videos": channel_data["videos"]  # 保存该频道的所有相关视频，用于后续展开
         })
 
     # 批量AI评分
@@ -446,22 +550,28 @@ def main():
     # 合并适配度结果
     final_results = []
 
-    # 先添加相关且已评分的
+    # 先添加相关且已评分的（每个频道展开为多行，每行对应一个视频）
     for i, fit_result in enumerate(fit_results):
-        video = relevant_videos[i]
-        final_results.append({
-            "channel_name": video["channel_name"],
-            "channel_url": video["channel_url"],
-            "video_url": video["video_url"],
-            "keyword": video["keyword"],
-            "subscriber_count": video["subscriber_count"],
-            "relevance_verdict": video["relevance_verdict"],
-            "relevance_reason": video["relevance_reason"],
-            "fit_score": fit_result.fit_score,
-            "fit_verdict": fit_result.verdict.value,
-            "fit_reason": fit_result.reason,
-            "suggested_angle": fit_result.suggested_angle
-        })
+        channel_data = channels_for_scoring[i]
+
+        # 该频道的所有相关视频
+        related_videos = channel_data["related_videos"]
+
+        # 每个视频作为一行，但共享同一个KOL适配度评分
+        for video in related_videos:
+            final_results.append({
+                "channel_name": channel_data["channel_name"],
+                "channel_url": channel_data["channel_url"],
+                "video_url": video["video_url"],
+                "keyword": video["keyword"],
+                "subscriber_count": channel_data["subscriber_count"],
+                "relevance_verdict": video["relevance_verdict"],
+                "relevance_reason": video["relevance_reason"],
+                "fit_score": fit_result.fit_score,
+                "fit_verdict": fit_result.verdict.value,
+                "fit_reason": fit_result.reason,
+                "suggested_angle": fit_result.suggested_angle
+            })
 
     # 添加不相关的（直接标记为"不推荐"）
     for video in enriched_videos:
@@ -481,7 +591,7 @@ def main():
             })
 
     # 4. 导出Excel
-    print(f"\n[4/4] 导出结果到Excel...")
+    print(f"\n[5/5] 导出结果到Excel...")
     export_results_to_excel(final_results, OUTPUT_FILE)
 
     print("\n" + "=" * 60)
