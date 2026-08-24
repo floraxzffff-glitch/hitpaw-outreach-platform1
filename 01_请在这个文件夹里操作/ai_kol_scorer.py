@@ -41,7 +41,7 @@ class KOLFitScoreResult:
 class AIKOLScorer:
     """AI KOL适配度评分器"""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "claude-haiku-4-5"):
         if not Anthropic:
             raise ImportError("anthropic 库未安装")
 
