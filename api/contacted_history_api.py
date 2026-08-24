@@ -21,25 +21,25 @@ TRACKER_PATH = os.path.join(VIKPEA_DIR, "VikPea_邮件开发追踪.xlsx")
 
 def get_contacted_history_records():
     """
-    Get contacted history records from VikPea_额外已联络去重.xlsx
+    Get contacted history records from VikPea_邮件开发追踪.xlsx
     Returns list of dicts with keys: name, email, link, note
     """
-    if not openpyxl or not os.path.exists(EXTRA_DEDUPE_PATH):
+    if not openpyxl or not os.path.exists(TRACKER_PATH):
         return []
 
     try:
-        wb = openpyxl.load_workbook(EXTRA_DEDUPE_PATH, data_only=True)
-        ws = wb.active
+        wb = openpyxl.load_workbook(TRACKER_PATH, data_only=True)
+        ws = wb["邮件追踪"] if "邮件追踪" in wb.sheetnames else wb.active
         records = []
 
         for row in ws.iter_rows(min_row=2, values_only=True):
             if not row or not any(row):
                 continue
             records.append({
-                "name": str(row[0] or "").strip(),
-                "email": str(row[1] or "").strip(),
-                "link": str(row[2] or "").strip(),
-                "note": str(row[3] or "").strip() if len(row) > 3 else "",
+                "name": str(row[2] or "").strip(),
+                "email": str(row[3] or "").strip(),
+                "link": str(row[5] or "").strip() if len(row) > 5 else "",
+                "note": str(row[6] or "").strip() if len(row) > 6 else "",
             })
 
         return records
