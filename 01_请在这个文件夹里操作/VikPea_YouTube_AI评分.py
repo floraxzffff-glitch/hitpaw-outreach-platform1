@@ -237,15 +237,14 @@ def load_search_results() -> List[Dict]:
         if not row or not row[0]:  # 跳过空行
             continue
 
-        # 假设列顺序：频道名、频道URL、视频URL、关键词、订阅数
-        # 实际顺序可能不同，需要根据实际表格调整
+        # 实际列顺序：0:频道名 1:邮箱 2:定制主题 3:定制开头 4:主页链接 5:视频链接 6:备注 7:类型 8:来源关键词
         channel_name = str(row[0]) if row[0] else ""
-        channel_url = str(row[1]) if len(row) > 1 and row[1] else ""
-        video_url = str(row[2]) if len(row) > 2 and row[2] else ""
-        keyword = str(row[3]) if len(row) > 3 and row[3] else ""
-        subscriber_count = int(row[4]) if len(row) > 4 and row[4] and str(row[4]).isdigit() else 0
+        channel_url = str(row[4]) if len(row) > 4 and row[4] else ""
+        video_url = str(row[5]) if len(row) > 5 and row[5] else ""
+        keyword = str(row[8]) if len(row) > 8 and row[8] else ""
+        subscriber_count = 0  # 订阅数需要从频道元数据中获取
 
-        if channel_name and video_url:
+        if channel_name and video_url and keyword:
             results.append({
                 "channel_name": channel_name,
                 "channel_url": channel_url,

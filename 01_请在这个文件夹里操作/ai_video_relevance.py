@@ -110,23 +110,40 @@ class AIVideoRelevanceJudge:
         Returns:
             VideoRelevanceResult: 判断结果
         """
-        # 检查关键词出现在哪些字段
+        # 检查关键词出现在哪些字段（使用分词匹配）
         matched_fields = []
         all_keywords = keyword_query.all_keywords()
 
+        # 停用词列表（这些词不作为关键匹配依据）
+        stop_words = {'for', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'of', 'with'}
+
         for kw in all_keywords:
             kw_lower = kw.lower()
-            if kw_lower in video_title.lower():
-                if "title" not in matched_fields:
-                    matched_fields.append("title")
-            if kw_lower in video_description.lower():
-                if "description" not in matched_fields:
-                    matched_fields.append("description")
-            for tag in video_tags:
-                if kw_lower in tag.lower():
-                    if "tags" not in matched_fields:
-                        matched_fields.append("tags")
-                    break
+            # 分词：提取关键词中的实质性词语（去除停用词）
+            words = [w.strip() for w in kw_lower.split() if w.strip() and w.strip() not in stop_words]
+
+            # 如果没有实质性词语，使用完整短语匹配
+            if not words:
+                words = [kw_lower]
+
+            # 检查主要词是否出现在各个字段
+            title_lower = video_title.lower()
+            desc_lower = video_description.lower()
+            tags_lower = [t.lower() for t in video_tags]
+
+            # 计算匹配度（至少50%的关键词出现）
+            title_matches = sum(1 for w in words if w in title_lower)
+            desc_matches = sum(1 for w in words if w in desc_lower)
+            tags_matches = sum(1 for w in words if any(w in tag for tag in tags_lower))
+
+            threshold = max(1, len(words) * 0.5)  # 至少50%的词匹配
+
+            if title_matches >= threshold and "title" not in matched_fields:
+                matched_fields.append("title")
+            if desc_matches >= threshold and "description" not in matched_fields:
+                matched_fields.append("description")
+            if tags_matches >= threshold and "tags" not in matched_fields:
+                matched_fields.append("tags")
 
         # 如果关键词完全没出现，直接判定为不相关
         if not matched_fields:
