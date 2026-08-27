@@ -47,6 +47,16 @@ export function Sidebar() {
           🎯 YouTube 关键词拓展
         </Link>
         <Link
+          href="/ai-screening"
+          className={`block px-4 py-2.5 rounded-lg transition-colors ${
+            isActive('/ai-screening')
+              ? 'bg-blue-500 text-white'
+              : 'text-gray-300 hover:bg-slate-800 hover:text-white'
+          }`}
+        >
+          🤖 AI 智能筛选
+        </Link>
+        <Link
           href="/settings"
           className={`block px-4 py-2.5 rounded-lg transition-colors ${
             isActive('/settings')
