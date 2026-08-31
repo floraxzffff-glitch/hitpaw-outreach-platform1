@@ -19,6 +19,7 @@ import contact_threshold_config
 import contacted_history_api
 import keyword_expansion
 from ai_relevance_filter import filter_candidate_videos
+import ai_kol_screening
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -1241,6 +1242,342 @@ async def youtube_video_search(payload: YouTubeVideoSearchRequest):
     except Exception as e:
         logger.error(f"YouTube视频搜索失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== AI KOL 智能筛选功能 ====================
+
+class AIScreeningGenerateKeywordsRequest(BaseModel):
+    """AI生成关键词请求"""
+    feature_description: str = Field(..., description="功能点描述，如 'enhance ai'")
+    count: int = Field(10, description="生成数量", ge=5, le=20)
+
+
+@app.post("/api/ai-screening/generate-keywords", tags=["AI KOL Screening"])
+async def ai_screening_generate_keywords(payload: AIScreeningGenerateKeywordsRequest):
+    """
+    AI生成差异化关键词
+    """
+    try:
+        engine = ai_kol_screening.get_screening_engine()
+        keywords = engine.generate_keywords(
+            feature_description=payload.feature_description,
+            count=payload.count
+        )
+
+        return {
+            "feature_description": payload.feature_description,
+            "keywords": [{"keyword": k, "enabled": True} for k in keywords],
+            "count": len(keywords)
+        }
+    except Exception as e:
+        logger.error(f"AI生成关键词失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class AIScreeningRunRequest(BaseModel):
+    """AI智能筛选执行请求"""
+    feature_description: str = Field(..., description="功能点描述")
+    keywords: List[str] = Field(..., description="关键词列表")
+    enable_variants: bool = Field(False, description="是否启用关键词变体扩展")
+    max_results_per_keyword: int = Field(50, description="每个关键词拉取结果数", ge=20, le=200)
+    min_subscribers: int = Field(1000, description="最小粉丝数")
+    max_subscribers: int = Field(1000000, description="最大粉丝数")
+    min_video_views: int = Field(1000, description="命中视频最低播放量")
+    min_recent_avg_views: int = Field(500, description="近5条视频平均播放量门槛")
+
+
+# 全局存储筛选任务状态
+AI_SCREENING_TASKS: Dict[str, Dict[str, Any]] = {}
+
+
+@app.post("/api/ai-screening/run", tags=["AI KOL Screening"])
+async def ai_screening_run(payload: AIScreeningRunRequest, background_tasks: BackgroundTasks):
+    """
+    开始AI智能筛选（后台任务）
+
+    返回任务ID，可通过 /api/ai-screening/status/{task_id} 查询进度
+    """
+    task_id = f"screening_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    AI_SCREENING_TASKS[task_id] = {
+        "task_id": task_id,
+        "status": ai_kol_screening.ScreeningStatus.IDLE.value,
+        "progress": [],
+        "candidates": [],
+        "error": None,
+        "started_at": datetime.now().isoformat()
+    }
+
+    background_tasks.add_task(process_ai_screening, task_id, payload)
+
+    return {
+        "task_id": task_id,
+        "status": "started",
+        "message": "AI智能筛选已启动"
+    }
+
+
+@app.get("/api/ai-screening/status/{task_id}", tags=["AI KOL Screening"])
+async def ai_screening_status(task_id: str):
+    """
+    查询AI智能筛选任务状态和进度
+    """
+    if task_id not in AI_SCREENING_TASKS:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    return AI_SCREENING_TASKS[task_id]
+
+
+@app.get("/api/ai-screening/export/{task_id}", tags=["AI KOL Screening"])
+async def ai_screening_export(task_id: str):
+    """
+    导出AI智能筛选结果为Excel
+
+    返回候选列表，前端负责生成Excel
+    """
+    if task_id not in AI_SCREENING_TASKS:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    task = AI_SCREENING_TASKS[task_id]
+
+    if task["status"] != ai_kol_screening.ScreeningStatus.COMPLETED.value:
+        raise HTTPException(status_code=400, detail="任务尚未完成")
+
+    candidates = task["candidates"]
+
+    # 分类：推荐、待确认、不推荐
+    recommended = []
+    uncertain = []
+    not_recommended = []
+
+    for c in candidates:
+        if c.get("excluded_by_threshold"):
+            continue
+
+        verdict = c.get("fit_verdict", "")
+        if verdict == ai_kol_screening.FitVerdict.RECOMMENDED.value:
+            recommended.append(c)
+        elif verdict == ai_kol_screening.FitVerdict.UNCERTAIN.value:
+            uncertain.append(c)
+        else:
+            not_recommended.append(c)
+
+    return {
+        "task_id": task_id,
+        "recommended": recommended,
+        "uncertain": uncertain,
+        "not_recommended": not_recommended,
+        "total": len(candidates)
+    }
+
+
+# ======================== 后台任务 ========================
+
+async def process_ai_screening(task_id: str, payload: AIScreeningRunRequest):
+    """
+    后台执行AI智能筛选完整流程
+    """
+    logger.info(f"[AI筛选] 任务开始: {task_id}")
+
+    try:
+        engine = ai_kol_screening.get_screening_engine()
+        task = AI_SCREENING_TASKS[task_id]
+
+        def update_progress(status: ai_kol_screening.ScreeningStatus, message: str, current: int = 0, total: int = 0):
+            progress = ai_kol_screening.ScreeningProgress(
+                status=status,
+                message=message,
+                current=current,
+                total=total
+            )
+            task["status"] = status.value
+            task["progress"].append(progress.__dict__)
+
+        # 第1层：关键词搜索
+        update_progress(
+            ai_kol_screening.ScreeningStatus.SEARCHING_VIDEOS,
+            "正在搜索关键词...",
+            0,
+            len(payload.keywords)
+        )
+
+        all_videos = []
+        for idx, keyword in enumerate(payload.keywords):
+            try:
+                videos = engine.search_videos_by_keyword(
+                    keyword=keyword,
+                    max_results=payload.max_results_per_keyword
+                )
+                all_videos.extend(videos)
+                update_progress(
+                    ai_kol_screening.ScreeningStatus.SEARCHING_VIDEOS,
+                    f"已搜索关键词: {keyword}",
+                    idx + 1,
+                    len(payload.keywords)
+                )
+            except Exception as e:
+                logger.error(f"搜索关键词失败 ({keyword}): {e}")
+                update_progress(
+                    ai_kol_screening.ScreeningStatus.SEARCHING_VIDEOS,
+                    f"关键词搜索失败: {keyword} - {str(e)}",
+                    idx + 1,
+                    len(payload.keywords)
+                )
+
+        # 第2层：按频道聚合
+        update_progress(
+            ai_kol_screening.ScreeningStatus.AGGREGATING_CHANNELS,
+            "正在聚合频道...",
+            0,
+            0
+        )
+
+        candidates_dict = engine.aggregate_by_channel(all_videos)
+        update_progress(
+            ai_kol_screening.ScreeningStatus.AGGREGATING_CHANNELS,
+            f"聚合完成，共 {len(candidates_dict)} 个频道",
+            len(candidates_dict),
+            len(candidates_dict)
+        )
+
+        # 第3层：拉取频道详情
+        update_progress(
+            ai_kol_screening.ScreeningStatus.FETCHING_CHANNEL_DETAILS,
+            "正在拉取频道详情...",
+            0,
+            len(candidates_dict)
+        )
+
+        for idx, (channel_id, candidate) in enumerate(candidates_dict.items()):
+            try:
+                details = engine.fetch_channel_details(channel_id)
+                candidate.recent_videos = details.get("recent_videos", [])
+                candidate.recent_avg_views = details.get("recent_avg_views", 0)
+                candidate.subscriber_count = details.get("subscriber_count", 0)
+
+                # 模拟粉丝数（yt-dlp不返回，需要YouTube API）
+                if candidate.subscriber_count == 0:
+                    # 根据视频播放量估算
+                    avg_views = sum([v.get('view_count', 0) for v in candidate.matched_videos]) / max(len(candidate.matched_videos), 1)
+                    candidate.subscriber_count = int(avg_views * 10)  # 粗略估算
+
+                update_progress(
+                    ai_kol_screening.ScreeningStatus.FETCHING_CHANNEL_DETAILS,
+                    f"已拉取: {candidate.channel_name}",
+                    idx + 1,
+                    len(candidates_dict)
+                )
+            except Exception as e:
+                logger.error(f"拉取频道详情失败 ({channel_id}): {e}")
+
+        # 第4层：门槛过滤
+        update_progress(
+            ai_kol_screening.ScreeningStatus.FILTERING_THRESHOLDS,
+            "正在应用筛选门槛...",
+            0,
+            0
+        )
+
+        candidates_dict = engine.apply_threshold_filters(
+            candidates_dict,
+            min_subscribers=payload.min_subscribers,
+            max_subscribers=payload.max_subscribers,
+            min_video_views=payload.min_video_views,
+            min_recent_avg_views=payload.min_recent_avg_views
+        )
+
+        passed_count = sum(1 for c in candidates_dict.values() if not c.excluded_by_threshold)
+        update_progress(
+            ai_kol_screening.ScreeningStatus.FILTERING_THRESHOLDS,
+            f"门槛过滤完成，{passed_count}/{len(candidates_dict)} 通过",
+            passed_count,
+            len(candidates_dict)
+        )
+
+        # 第5层：AI相关性判断
+        candidates_list = list(candidates_dict.values())
+        to_judge = [c for c in candidates_list if not c.excluded_by_threshold]
+
+        update_progress(
+            ai_kol_screening.ScreeningStatus.JUDGING_RELEVANCE,
+            "正在进行AI相关性判断...",
+            0,
+            len(to_judge)
+        )
+
+        candidates_list = engine.judge_relevance_batch(
+            candidates_list,
+            feature_description=payload.feature_description
+        )
+
+        update_progress(
+            ai_kol_screening.ScreeningStatus.JUDGING_RELEVANCE,
+            "AI相关性判断完成",
+            len(to_judge),
+            len(to_judge)
+        )
+
+        # 第6层：AI适配度评分
+        to_score = [c for c in candidates_list if not c.excluded_by_threshold and c.relevance_verdict != "不相关"]
+
+        update_progress(
+            ai_kol_screening.ScreeningStatus.SCORING_FIT,
+            "正在进行AI综合适配度判断...",
+            0,
+            len(to_score)
+        )
+
+        candidates_list = engine.score_fit_batch(
+            candidates_list,
+            feature_description=payload.feature_description
+        )
+
+        update_progress(
+            ai_kol_screening.ScreeningStatus.SCORING_FIT,
+            "AI综合适配度判断完成",
+            len(to_score),
+            len(to_score)
+        )
+
+        # 完成
+        update_progress(
+            ai_kol_screening.ScreeningStatus.COMPLETED,
+            f"筛选完成！共 {len(candidates_list)} 个候选",
+            len(candidates_list),
+            len(candidates_list)
+        )
+
+        # 转换为字典格式
+        task["candidates"] = [
+            {
+                "channel_id": c.channel_id,
+                "channel_name": c.channel_name,
+                "channel_url": c.channel_url,
+                "subscriber_count": c.subscriber_count,
+                "recent_avg_views": c.recent_avg_views,
+                "matched_videos_count": len(c.matched_videos),
+                "matched_videos": c.matched_videos,
+                "relevance_verdict": c.relevance_verdict,
+                "relevance_reason": c.relevance_reason,
+                "fit_score": c.fit_score,
+                "fit_verdict": c.fit_verdict,
+                "fit_reason": c.fit_reason,
+                "suggested_angle": c.suggested_angle,
+                "excluded_by_threshold": c.excluded_by_threshold,
+                "exclusion_reason": c.exclusion_reason
+            }
+            for c in candidates_list
+        ]
+
+    except Exception as e:
+        logger.error(f"[AI筛选] 任务失败 ({task_id}): {e}")
+        task["status"] = ai_kol_screening.ScreeningStatus.FAILED.value
+        task["error"] = str(e)
+        progress = ai_kol_screening.ScreeningProgress(
+            status=ai_kol_screening.ScreeningStatus.FAILED,
+            message=f"任务失败: {str(e)}"
+        )
+        task["progress"].append(progress.__dict__)
 
 
 # ======================== 后台任务 ========================

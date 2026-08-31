@@ -220,6 +220,83 @@ export interface SendJob {
   finished_at?: string | null;
 }
 
+// ======================== AI KOL 智能筛选 ========================
+
+export interface ScreeningKeyword {
+  keyword: string;
+  enabled: boolean;
+}
+
+export type ScreeningStatusValue =
+  | 'idle'
+  | 'generating_keywords'
+  | 'searching_videos'
+  | 'aggregating_channels'
+  | 'filtering_thresholds'
+  | 'judging_relevance'
+  | 'fetching_channel_details'
+  | 'scoring_fit'
+  | 'completed'
+  | 'failed';
+
+export interface ScreeningProgressEntry {
+  status: ScreeningStatusValue;
+  message: string;
+  current: number;
+  total: number;
+  timestamp: string;
+}
+
+export interface ScreeningCandidate {
+  channel_id: string;
+  channel_name: string;
+  channel_url: string;
+  subscriber_count: number;
+  recent_avg_views: number;
+  matched_videos_count: number;
+  matched_videos: Array<{
+    video_id: string;
+    title: string;
+    url: string;
+    view_count: number;
+    source_keyword: string;
+  }>;
+  relevance_verdict: string;
+  relevance_reason: string;
+  fit_score: number;
+  fit_verdict: string;
+  fit_reason: string;
+  suggested_angle: string;
+  excluded_by_threshold: boolean;
+  exclusion_reason: string;
+}
+
+export interface ScreeningTaskStatus {
+  task_id: string;
+  status: ScreeningStatusValue;
+  progress: ScreeningProgressEntry[];
+  candidates: ScreeningCandidate[];
+  error?: string | null;
+  started_at: string;
+}
+
+export interface ScreeningRunOptions {
+  enable_variants?: boolean;
+  max_results_per_keyword?: number;
+  min_subscribers?: number;
+  max_subscribers?: number;
+  min_video_views?: number;
+  min_recent_avg_views?: number;
+}
+
+export interface ScreeningExportResult {
+  task_id: string;
+  recommended: ScreeningCandidate[];
+  uncertain: ScreeningCandidate[];
+  not_recommended: ScreeningCandidate[];
+  total: number;
+}
+
 // API 错误类
 export class APIError extends Error {
   public statusCode: number;
@@ -669,6 +746,42 @@ class VikPeaAPI {
     features: string[];
   }> {
     const response = await this.axiosInstance.get('/api/config');
+    return response.data;
+  }
+
+  // ======================== AI KOL 智能筛选 ========================
+
+  async generateScreeningKeywords(
+    featureDescription: string,
+    count: number = 10
+  ): Promise<{ feature_description: string; keywords: ScreeningKeyword[]; count: number }> {
+    const response = await this.axiosInstance.post('/api/ai-screening/generate-keywords', {
+      feature_description: featureDescription,
+      count,
+    });
+    return response.data;
+  }
+
+  async startScreeningRun(
+    featureDescription: string,
+    keywords: string[],
+    options: ScreeningRunOptions = {}
+  ): Promise<{ task_id: string; status: string; message: string }> {
+    const response = await this.axiosInstance.post('/api/ai-screening/run', {
+      feature_description: featureDescription,
+      keywords,
+      ...options,
+    });
+    return response.data;
+  }
+
+  async getScreeningStatus(taskId: string): Promise<ScreeningTaskStatus> {
+    const response = await this.axiosInstance.get(`/api/ai-screening/status/${taskId}`);
+    return response.data;
+  }
+
+  async exportScreeningResult(taskId: string): Promise<ScreeningExportResult> {
+    const response = await this.axiosInstance.get(`/api/ai-screening/export/${taskId}`);
     return response.data;
   }
 }
