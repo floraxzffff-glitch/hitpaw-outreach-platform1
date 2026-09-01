@@ -1373,7 +1373,7 @@ async def ai_screening_export(task_id: str):
 
 # ======================== 后台任务 ========================
 
-async def process_ai_screening(task_id: str, payload: AIScreeningRunRequest):
+def process_ai_screening(task_id: str, payload: AIScreeningRunRequest):
     """
     后台执行AI智能筛选完整流程
     """
